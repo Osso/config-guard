@@ -4,6 +4,7 @@ use config_guard::fanotify::{Mode, ensure_path_exists};
 use config_guard::learning::AuditLearner;
 use config_guard::policy::{Policy, PolicyConfig};
 use config_guard::prompt::NonInteractivePrompt;
+use config_guard::reconcile::{ActionKind, ReconcileOptions, plan_reconcile};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -32,6 +33,14 @@ enum Command {
         #[arg(long, default_value_t = 10)]
         timeout_seconds: u64,
     },
+    Reconcile {
+        #[arg(long)]
+        config_home: Option<PathBuf>,
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        apply: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -45,6 +54,11 @@ fn main() -> Result<()> {
             prompt_command,
             timeout_seconds,
         } => run_guard(path, config, prompt_command, timeout_seconds),
+        Command::Reconcile {
+            config_home,
+            config,
+            apply,
+        } => run_reconcile(config_home, config, apply),
     }
 }
 
@@ -94,7 +108,7 @@ fn build_prompt(
 }
 
 fn load_policy_config(config: Option<PathBuf>) -> Result<PolicyConfig> {
-    let Some(config) = config.or_else(default_config_path) else {
+    let Some(config) = resolve_config_path(config) else {
         return Ok(PolicyConfig::default());
     };
 
@@ -102,6 +116,61 @@ fn load_policy_config(config: Option<PathBuf>) -> Result<PolicyConfig> {
         .with_context(|| format!("reading {}", config.display()))?;
 
     toml::from_str(&content).with_context(|| format!("parsing {}", config.display()))
+}
+
+fn resolve_config_path(config: Option<PathBuf>) -> Option<PathBuf> {
+    config.or_else(default_config_path)
+}
+
+fn run_reconcile(
+    config_home_arg: Option<PathBuf>,
+    config: Option<PathBuf>,
+    apply: bool,
+) -> Result<()> {
+    let config_path = resolve_config_path(config);
+    let policy_config = load_policy_config(config_path.clone())?;
+    let config_home = config_home_arg
+        .or_else(config_home)
+        .context("could not determine config home")?;
+    let options = ReconcileOptions::new(config_home, &policy_config);
+    let options = match config_path {
+        Some(config_path) => options.with_config_path(config_path),
+        None => options,
+    };
+    let options = if apply { options.apply() } else { options };
+    let plan = plan_reconcile(options)?;
+
+    for action in plan.actions {
+        print_reconcile_action(&action);
+    }
+
+    Ok(())
+}
+
+fn print_reconcile_action(action: &config_guard::reconcile::ReconcileAction) {
+    let label = match action.kind {
+        ActionKind::KeepConfigured => "keep",
+        ActionKind::AssociateCandidate => "associate-candidate",
+        ActionKind::Associated => "associated",
+        ActionKind::ArchiveCandidate => "archive-candidate",
+        ActionKind::Archived => "archived",
+    };
+
+    match (&action.target, &action.owner, &action.binary) {
+        (Some(target), _, _) => println!(
+            "{label}\t{}\t{}\t{}",
+            action.source.display(),
+            target.display(),
+            action.reason
+        ),
+        (None, Some(owner), Some(binary)) => println!(
+            "{label}\t{}\towner={owner}\tbinary={}\t{}",
+            action.source.display(),
+            binary.display(),
+            action.reason
+        ),
+        _ => println!("{label}\t{}\t{}", action.source.display(), action.reason),
+    }
 }
 
 fn default_config_path() -> Option<PathBuf> {
