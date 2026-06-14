@@ -94,7 +94,7 @@ fn build_prompt(
 }
 
 fn load_policy_config(config: Option<PathBuf>) -> Result<PolicyConfig> {
-    let Some(config) = config else {
+    let Some(config) = config.or_else(default_config_path) else {
         return Ok(PolicyConfig::default());
     };
 
@@ -102,4 +102,43 @@ fn load_policy_config(config: Option<PathBuf>) -> Result<PolicyConfig> {
         .with_context(|| format!("reading {}", config.display()))?;
 
     toml::from_str(&content).with_context(|| format!("parsing {}", config.display()))
+}
+
+fn default_config_path() -> Option<PathBuf> {
+    default_config_path_in(config_home()?)
+}
+
+fn default_config_path_in(config_home: PathBuf) -> Option<PathBuf> {
+    let path = config_home.join("config-guard").join("config.toml");
+
+    path.exists().then_some(path)
+}
+
+fn config_home() -> Option<PathBuf> {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::default_config_path_in;
+    use std::fs;
+
+    #[test]
+    fn default_config_path_uses_config_guard_config_toml() {
+        let config_home =
+            std::env::temp_dir().join(format!("config-guard-test-{}", std::process::id()));
+        let config_path = config_home.join("config-guard").join("config.toml");
+        fs::create_dir_all(config_path.parent().expect("config path has parent"))
+            .expect("create temp config dir");
+        fs::write(&config_path, "").expect("write temp config");
+
+        assert_eq!(
+            default_config_path_in(config_home.clone()),
+            Some(config_path)
+        );
+
+        let _ = fs::remove_dir_all(config_home);
+    }
 }

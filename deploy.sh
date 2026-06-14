@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+binary_target="${HOME}/.local/bin/config-guard"
+config_target="${XDG_CONFIG_HOME:-${HOME}/.config}/config-guard/config.toml"
+
+cd "${project_dir}"
+
+cargo build --release
+
+install -Dm755 "target/release/config-guard" "${binary_target}"
+install -Dm600 "config/osso.toml" "${config_target}"
+
+echo "Installed config-guard -> ${binary_target}"
+echo "Installed config -> ${config_target}"
