@@ -94,12 +94,10 @@ fn child_directories(path: &Path) -> Result<Vec<PathBuf>> {
 
     for entry in fs::read_dir(path).with_context(|| format!("reading {}", path.display()))? {
         let entry = entry.with_context(|| format!("reading entry under {}", path.display()))?;
-        let file_type = entry
-            .file_type()
-            .with_context(|| format!("reading file type for {}", entry.path().display()))?;
+        let child_path = entry.path();
 
-        if file_type.is_dir() {
-            directories.push(entry.path());
+        if child_path.is_dir() {
+            directories.push(child_path);
         }
     }
 
