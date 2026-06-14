@@ -1,3 +1,4 @@
+use crate::learning::AuditLearner;
 use crate::policy::{AccessKind, Decision, Policy};
 use crate::process::inspect_process;
 use crate::prompt::{Prompt, PromptRequest};
@@ -16,7 +17,9 @@ use std::path::{Path, PathBuf};
 const EVENT_BUFFER_SIZE: usize = 8192;
 
 pub enum Mode<'a> {
-    Audit,
+    Audit {
+        learner: Option<AuditLearner>,
+    },
     Guard {
         policy: &'a Policy,
         prompt: &'a dyn Prompt,
@@ -25,11 +28,16 @@ pub enum Mode<'a> {
 
 pub fn run(path: &Path, mode: Mode<'_>) -> Result<()> {
     let fanotify_fd = create_fanotify_fd()?;
-    mark_path(fanotify_fd, path)?;
-    eprintln!("watching {}", path.display());
+    let marked_paths = mark_path_tree(fanotify_fd, path)?;
+    eprintln!(
+        "watching {} ({} directories marked)",
+        path.display(),
+        marked_paths
+    );
+    let mut mode = mode;
 
     loop {
-        read_events(fanotify_fd, &mode)?;
+        read_events(fanotify_fd, &mut mode)?;
     }
 }
 
@@ -59,7 +67,46 @@ fn mark_path(fanotify_fd: RawFd, path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn read_events(fanotify_fd: RawFd, mode: &Mode<'_>) -> Result<()> {
+fn mark_path_tree(fanotify_fd: RawFd, path: &Path) -> Result<usize> {
+    if !path.is_dir() {
+        mark_path(fanotify_fd, path)?;
+        return Ok(1);
+    }
+
+    let mut marked_paths = 0;
+    let mut pending_paths = vec![path.to_path_buf()];
+
+    while let Some(current_path) = pending_paths.pop() {
+        mark_path(fanotify_fd, &current_path)
+            .with_context(|| format!("marking {}", current_path.display()))?;
+        marked_paths += 1;
+
+        for child_path in child_directories(&current_path)? {
+            pending_paths.push(child_path);
+        }
+    }
+
+    Ok(marked_paths)
+}
+
+fn child_directories(path: &Path) -> Result<Vec<PathBuf>> {
+    let mut directories = Vec::new();
+
+    for entry in fs::read_dir(path).with_context(|| format!("reading {}", path.display()))? {
+        let entry = entry.with_context(|| format!("reading entry under {}", path.display()))?;
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("reading file type for {}", entry.path().display()))?;
+
+        if file_type.is_dir() {
+            directories.push(entry.path());
+        }
+    }
+
+    Ok(directories)
+}
+
+fn read_events(fanotify_fd: RawFd, mode: &mut Mode<'_>) -> Result<()> {
     let mut buffer = [0u8; EVENT_BUFFER_SIZE];
     let bytes_read = unsafe {
         read(
@@ -76,7 +123,7 @@ fn read_events(fanotify_fd: RawFd, mode: &Mode<'_>) -> Result<()> {
     handle_event_buffer(fanotify_fd, &buffer[..bytes_read as usize], mode)
 }
 
-fn handle_event_buffer(fanotify_fd: RawFd, buffer: &[u8], mode: &Mode<'_>) -> Result<()> {
+fn handle_event_buffer(fanotify_fd: RawFd, buffer: &[u8], mode: &mut Mode<'_>) -> Result<()> {
     let mut offset = 0;
 
     while offset + mem::size_of::<fanotify_event_metadata>() <= buffer.len() {
@@ -100,7 +147,7 @@ fn read_metadata(buffer: &[u8], offset: usize) -> fanotify_event_metadata {
 fn handle_event(
     fanotify_fd: RawFd,
     metadata: &fanotify_event_metadata,
-    mode: &Mode<'_>,
+    mode: &mut Mode<'_>,
 ) -> Result<()> {
     if metadata.fd < 0 {
         return Ok(());
@@ -120,7 +167,7 @@ fn handle_event(
 fn decide_event(
     metadata: &fanotify_event_metadata,
     target_path: &Path,
-    mode: &Mode<'_>,
+    mode: &mut Mode<'_>,
 ) -> Result<Decision> {
     let access = access_kind(metadata.mask);
     let process = match inspect_process(metadata.pid) {
@@ -137,7 +184,7 @@ fn decide_event(
     };
 
     match mode {
-        Mode::Audit => {
+        Mode::Audit { learner } => {
             eprintln!(
                 "ALLOW audit pid={} exe={} access={:?} path={}",
                 metadata.pid,
@@ -149,6 +196,9 @@ fn decide_event(
                 access,
                 target_path.display()
             );
+            if let Some(learner) = learner {
+                learner.observe(&process.subject(), target_path, access)?;
+            }
             Ok(Decision::Allow)
         }
         Mode::Guard { policy, prompt } => {

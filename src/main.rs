@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use config_guard::fanotify::{Mode, ensure_path_exists};
+use config_guard::learning::AuditLearner;
 use config_guard::policy::{Policy, PolicyConfig};
 use config_guard::prompt::NonInteractivePrompt;
 use std::path::PathBuf;
@@ -18,6 +19,8 @@ enum Command {
     Audit {
         #[arg(long)]
         path: PathBuf,
+        #[arg(long)]
+        learn_output: Option<PathBuf>,
     },
     Guard {
         #[arg(long)]
@@ -35,7 +38,7 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     match args.command {
-        Command::Audit { path } => run_audit(path),
+        Command::Audit { path, learn_output } => run_audit(path, learn_output),
         Command::Guard {
             path,
             config,
@@ -45,10 +48,19 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_audit(path: PathBuf) -> Result<()> {
+fn run_audit(path: PathBuf, learn_output: Option<PathBuf>) -> Result<()> {
     ensure_path_exists(&path)?;
+    let learner = learn_output.map(|output_path| AuditLearner::new(output_path, audit_home(&path)));
 
-    config_guard::fanotify::run(&path, Mode::Audit)
+    config_guard::fanotify::run(&path, Mode::Audit { learner })
+}
+
+fn audit_home(path: &std::path::Path) -> PathBuf {
+    path.parent()
+        .filter(|_| path.file_name().is_some_and(|name| name == ".config"))
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("/home/osso"))
 }
 
 fn run_guard(
