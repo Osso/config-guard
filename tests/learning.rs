@@ -29,6 +29,15 @@ fn learns_kube_as_config_root() {
 }
 
 #[test]
+fn learns_codex_as_config_root() {
+    let path = home_path(".codex/config.toml");
+
+    let root = config_root_for(&path);
+
+    assert_eq!(root, Some(home_path(".codex")));
+}
+
+#[test]
 fn ignores_paths_outside_known_config_roots() {
     let root = config_root_for(&PathBuf::from("/tmp/not-config"));
 

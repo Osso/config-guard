@@ -142,6 +142,7 @@ pub fn config_root_for_home(path: &Path, home: &Path) -> Option<PathBuf> {
 
     match first.to_str()? {
         ".config" => config_subdir_root(home, components.next()?.as_os_str().to_str()?),
+        ".codex" => Some(home.join(".codex")),
         ".kube" => Some(home.join(".kube")),
         ".ssh" => Some(home.join(".ssh")),
         ".mozilla" => Some(home.join(".mozilla")),

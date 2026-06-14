@@ -1,0 +1,162 @@
+# Machine-local policy seed for Alessio's config-guard setup.
+# This file contains path ownership rules only, never credential values.
+
+fail_open = true
+dev_tools = [
+  "claude",
+  "codex",
+  "opencode",
+  "cursor",
+  "node",
+  "python",
+  "python3",
+]
+
+[[owned_paths]]
+path = "/home/osso/.codex"
+owner = "codex"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/claude"
+owner = "claude"
+allowed_subjects = ["codex", "claude-memory"]
+
+[[owned_paths]]
+path = "/home/osso/.config/codex"
+owner = "codex"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/opencode"
+owner = "opencode"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/.jira"
+owner = "jira"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/claude-memory"
+owner = "claude-memory"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/cloudflare"
+owner = "cloudflare"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/doctl"
+owner = "doctl"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/gc"
+owner = "gc"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/gh"
+owner = "gh"
+allowed_subjects = ["git"]
+
+[[owned_paths]]
+path = "/home/osso/.config/github-cli"
+owner = "github"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/gitlab-cli"
+owner = "gitlab"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/gmail-cli"
+owner = "gmail"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/google-admin"
+owner = "google-admin"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/reddit"
+owner = "reddit"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/rtk"
+owner = "rtk"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/tplink"
+owner = "tplink"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/unifi"
+owner = "unifi"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.kube"
+owner = "kubectl"
+allowed_subjects = []
+
+[[shared_paths]]
+path = "/home/osso/.config/git"
+allowed_subjects = ["git", "git-remote-http", "gh", "github", "gitlab"]
+
+[[shared_paths]]
+path = "/home/osso/.config/shell"
+allowed_subjects = ["zsh", "bash"]
+
+[[shared_paths]]
+path = "/home/osso/.config/zsh"
+allowed_subjects = ["zsh"]
+
+[[sensitive_paths]]
+path = "/home/osso/.codex"
+
+[[sensitive_paths]]
+path = "/home/osso/.config/claude"
+
+[[sensitive_paths]]
+path = "/home/osso/.config/codex"
+
+[[sensitive_paths]]
+path = "/home/osso/.config/opencode"
+
+[[sensitive_paths]]
+path = "/home/osso/.config/gh"
+
+[[sensitive_paths]]
+path = "/home/osso/.config/github-cli"
+
+[[sensitive_paths]]
+path = "/home/osso/.config/gitlab-cli"
+
+[[sensitive_paths]]
+path = "/home/osso/.config/gmail-cli"
+
+[[sensitive_paths]]
+path = "/home/osso/.config/google-admin"
+
+[[sensitive_paths]]
+path = "/home/osso/.config/jira"
+
+[[sensitive_paths]]
+path = "/home/osso/.config/.jira"
+
+[[sensitive_paths]]
+path = "/home/osso/.config/reddit"
+
+[[sensitive_paths]]
+path = "/home/osso/.kube"
+
+[[sensitive_paths]]
+path = "/home/osso/.ssh"
