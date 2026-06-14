@@ -20,6 +20,15 @@ fn learns_ssh_as_sensitive_root() {
 }
 
 #[test]
+fn learns_kube_as_config_root() {
+    let path = home_path(".kube/config");
+
+    let root = config_root_for(&path);
+
+    assert_eq!(root, Some(home_path(".kube")));
+}
+
+#[test]
 fn ignores_paths_outside_known_config_roots() {
     let root = config_root_for(&PathBuf::from("/tmp/not-config"));
 
