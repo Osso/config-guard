@@ -58,6 +58,11 @@ owner = "gc"
 allowed_subjects = []
 
 [[owned_paths]]
+path = "/home/osso/.config/firefox"
+owner = "firefox"
+allowed_subjects = []
+
+[[owned_paths]]
 path = "/home/osso/.config/gh"
 owner = "gh"
 allowed_subjects = ["git"]
@@ -127,6 +132,9 @@ path = "/home/osso/.config/claude"
 
 [[sensitive_paths]]
 path = "/home/osso/.config/codex"
+
+[[sensitive_paths]]
+path = "/home/osso/.config/firefox"
 
 [[sensitive_paths]]
 path = "/home/osso/.config/opencode"
