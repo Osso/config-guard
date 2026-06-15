@@ -57,6 +57,9 @@ fn guard_invokes_prompt_command_for_cross_owner_access() {
         output.status.success(),
         "cat should complete via fail-open prompt default: {output:?}"
     );
+    let forbid = guard.wait_for_line("FORBID audit");
+    assert!(forbid.contains("exe=cat"), "{forbid}");
+    assert!(forbid.contains("reason=CrossOwnerRead"), "{forbid}");
 
     let prompt_log = fs::read_to_string(fixture.prompt_log_path()).expect("read prompt log");
     assert!(

@@ -242,6 +242,13 @@ fn decide_guard_event(
 ) -> Result<Decision> {
     let subject = process.subject();
     let policy_decision = policy.decide(&subject, target_path, access)?;
+    log_audit_decision(
+        pid,
+        &process.executable,
+        target_path,
+        access,
+        policy_decision.clone(),
+    );
 
     resolve_policy_decision(
         prompt,
