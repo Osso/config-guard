@@ -1,4 +1,4 @@
-use config_guard::process::{parse_cmdline, parse_start_time_ticks};
+use config_guard::process::{parse_cmdline, parse_parent_pid, parse_start_time_ticks};
 
 #[test]
 fn parses_cmdline_nul_separated_arguments() {
@@ -22,6 +22,16 @@ fn parses_start_time_from_proc_stat_with_spaces_in_comm() {
     let start_time = parse_start_time_ticks(stat).expect("start time should parse");
 
     assert_eq!(start_time, 123456789);
+}
+
+#[test]
+fn parses_parent_pid_from_proc_stat_with_spaces_in_comm() {
+    let stat =
+        "1234 (name with spaces) S 4321 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 123456789 21";
+
+    let parent_pid = parse_parent_pid(stat).expect("parent pid should parse");
+
+    assert_eq!(parent_pid, 4321);
 }
 
 #[test]

@@ -25,6 +25,7 @@ allowed_subjects = [
   "codex",
   "claude-memory",
   "exe-prefix:/home/osso/.local/share/claude/versions/",
+  "exe-with-ancestor-prefix:/usr/bin/bash:/home/osso/.local/share/claude/versions/",
 ]
 
 [[owned_paths]]

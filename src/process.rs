@@ -18,6 +18,7 @@ pub struct ProcessIdentity {
     pub command: Vec<String>,
     pub cwd: Option<PathBuf>,
     pub start_time_ticks: Option<u64>,
+    pub ancestors: Vec<PathBuf>,
 }
 
 impl ProcessIdentity {
@@ -28,6 +29,7 @@ impl ProcessIdentity {
                 .clone()
                 .unwrap_or_else(|| PathBuf::from("unknown")),
             command: self.command.clone(),
+            ancestors: self.ancestors.clone(),
         }
     }
 }
@@ -38,6 +40,7 @@ pub fn inspect_process(pid: i32) -> Result<ProcessIdentity> {
     let cwd = fs::read_link(proc_dir.join("cwd")).ok();
     let command = read_cmdline(proc_dir.join("cmdline"))?;
     let start_time_ticks = read_start_time_ticks(proc_dir.join("stat"))?;
+    let ancestors = read_ancestor_executables(pid);
 
     Ok(ProcessIdentity {
         pid,
@@ -45,6 +48,7 @@ pub fn inspect_process(pid: i32) -> Result<ProcessIdentity> {
         command,
         cwd,
         start_time_ticks,
+        ancestors,
     })
 }
 
@@ -84,10 +88,7 @@ pub fn parse_cmdline(bytes: &[u8]) -> Vec<String> {
 }
 
 pub fn parse_start_time_ticks(stat: &str) -> Result<u64> {
-    let command_end = stat
-        .rfind(") ")
-        .ok_or_else(|| anyhow!("proc stat is missing closing command name"))?;
-    let fields_after_command: Vec<&str> = stat[command_end + 2..].split_whitespace().collect();
+    let fields_after_command = parse_stat_fields_after_command(stat)?;
     let start_time_index = 19;
 
     fields_after_command
@@ -95,6 +96,25 @@ pub fn parse_start_time_ticks(stat: &str) -> Result<u64> {
         .ok_or_else(|| anyhow!("proc stat is missing start time field"))?
         .parse()
         .context("proc stat start time is not an integer")
+}
+
+pub fn parse_parent_pid(stat: &str) -> Result<i32> {
+    let fields_after_command = parse_stat_fields_after_command(stat)?;
+    let parent_pid_index = 1;
+
+    fields_after_command
+        .get(parent_pid_index)
+        .ok_or_else(|| anyhow!("proc stat is missing parent pid field"))?
+        .parse()
+        .context("proc stat parent pid is not an integer")
+}
+
+fn parse_stat_fields_after_command(stat: &str) -> Result<Vec<&str>> {
+    let command_end = stat
+        .rfind(") ")
+        .ok_or_else(|| anyhow!("proc stat is missing closing command name"))?;
+
+    Ok(stat[command_end + 2..].split_whitespace().collect())
 }
 
 fn read_cmdline(path: PathBuf) -> Result<Vec<String>> {
@@ -107,4 +127,30 @@ fn read_start_time_ticks(path: PathBuf) -> Result<Option<u64>> {
     let stat = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
 
     Ok(Some(parse_start_time_ticks(&stat)?))
+}
+
+fn read_ancestor_executables(pid: i32) -> Vec<PathBuf> {
+    let mut ancestors = Vec::new();
+    let mut current_pid = pid;
+
+    for _ in 0..32 {
+        let proc_dir = PathBuf::from("/proc").join(current_pid.to_string());
+        let Ok(stat) = fs::read_to_string(proc_dir.join("stat")) else {
+            break;
+        };
+        let Ok(parent_pid) = parse_parent_pid(&stat) else {
+            break;
+        };
+        if parent_pid <= 1 || parent_pid == current_pid {
+            break;
+        }
+
+        let parent_proc_dir = PathBuf::from("/proc").join(parent_pid.to_string());
+        if let Ok(executable) = fs::read_link(parent_proc_dir.join("exe")) {
+            ancestors.push(executable);
+        }
+        current_pid = parent_pid;
+    }
+
+    ancestors
 }

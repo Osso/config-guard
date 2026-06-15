@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 pub struct ProcessSubject {
     pub executable: PathBuf,
     pub command: Vec<String>,
+    pub ancestors: Vec<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -119,7 +120,8 @@ impl Policy {
         self.config
             .owned_paths
             .iter()
-            .find(|owner| target_path.starts_with(&owner.path))
+            .filter(|owner| target_path.starts_with(&owner.path))
+            .max_by_key(|owner| owner.path.as_os_str().len())
     }
 
     fn shared_path_allows(
@@ -203,7 +205,23 @@ fn subject_matches(allowed: &str, subject: &ProcessSubject, subject_name: &str) 
         return subject.executable == Path::new(path);
     }
 
+    if let Some(rule) = allowed.strip_prefix("exe-with-ancestor-prefix:") {
+        return subject_matches_executable_with_ancestor_prefix(rule, subject);
+    }
+
     false
+}
+
+fn subject_matches_executable_with_ancestor_prefix(rule: &str, subject: &ProcessSubject) -> bool {
+    let Some((executable, ancestor_prefix)) = rule.split_once(':') else {
+        return false;
+    };
+
+    subject.executable == Path::new(executable)
+        && subject
+            .ancestors
+            .iter()
+            .any(|ancestor| ancestor.starts_with(ancestor_prefix))
 }
 
 impl Default for PolicyConfig {

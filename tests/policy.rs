@@ -8,6 +8,7 @@ fn subject(name: &str) -> ProcessSubject {
     ProcessSubject {
         executable: PathBuf::from(format!("/usr/bin/{name}")),
         command: vec![name.to_string()],
+        ancestors: Vec::new(),
     }
 }
 
@@ -15,6 +16,15 @@ fn subject_executable(path: &str) -> ProcessSubject {
     ProcessSubject {
         executable: PathBuf::from(path),
         command: Vec::new(),
+        ancestors: Vec::new(),
+    }
+}
+
+fn subject_executable_with_ancestor(path: &str, ancestor: &str) -> ProcessSubject {
+    ProcessSubject {
+        executable: PathBuf::from(path),
+        command: Vec::new(),
+        ancestors: vec![PathBuf::from(ancestor)],
     }
 }
 
@@ -67,6 +77,89 @@ fn explicit_owner_allow_takes_precedence_over_sensitive_dev_tool_prompt() {
     let decision = policy.decide(
         &subject_executable("/home/osso/.local/share/claude/versions/2.1.177"),
         "/home/osso/.config/claude/commands/sentry-fix.md",
+        AccessKind::Read,
+    );
+
+    assert_eq!(decision, Decision::Allow);
+}
+
+#[test]
+fn ancestor_executable_prefix_can_allow_claude_spawned_bash_for_claude_config() {
+    let mut config = PolicyConfig::default();
+    config.owned_paths.push(OwnedPath {
+        path: PathBuf::from("/home/osso/.config/claude"),
+        owner: "claude".to_string(),
+        allowed_subjects: vec![
+            "exe-with-ancestor-prefix:/usr/bin/bash:/home/osso/.local/share/claude/versions/"
+                .to_string(),
+        ],
+    });
+    let policy = Policy::new(config);
+
+    let decision = policy.decide(
+        &subject_executable_with_ancestor(
+            "/usr/bin/bash",
+            "/home/osso/.local/share/claude/versions/2.1.177",
+        ),
+        "/home/osso/.config/claude/sessions/3653421.json",
+        AccessKind::Write,
+    );
+
+    assert_eq!(decision, Decision::Allow);
+}
+
+#[test]
+fn ancestor_executable_prefix_does_not_allow_bash_without_claude_parent() {
+    let mut config = PolicyConfig::default();
+    config.owned_paths.push(OwnedPath {
+        path: PathBuf::from("/home/osso/.config/claude"),
+        owner: "claude".to_string(),
+        allowed_subjects: vec![
+            "exe-with-ancestor-prefix:/usr/bin/bash:/home/osso/.local/share/claude/versions/"
+                .to_string(),
+        ],
+    });
+    let policy = Policy::new(config);
+
+    let decision = policy.decide(
+        &subject_executable("/usr/bin/bash"),
+        "/home/osso/.config/claude/sessions/3653421.json",
+        AccessKind::Write,
+    );
+
+    assert_eq!(
+        decision,
+        Decision::Prompt {
+            reason: DecisionReason::CrossOwnerWrite,
+            default: Box::new(Decision::Allow),
+        }
+    );
+}
+
+#[test]
+fn most_specific_owned_path_rule_wins() {
+    let mut config = PolicyConfig::default();
+    config.owned_paths.push(OwnedPath {
+        path: PathBuf::from("/home/osso/.config/claude"),
+        owner: "claude".to_string(),
+        allowed_subjects: Vec::new(),
+    });
+    config.owned_paths.push(OwnedPath {
+        path: PathBuf::from("/home/osso/.config/claude/shell-snapshots"),
+        owner: "claude-shell-snapshots".to_string(),
+        allowed_subjects: vec![
+            "exe-with-ancestor-prefix:/usr/bin/bash:/home/osso/.local/share/claude/versions/"
+                .to_string(),
+        ],
+    });
+    let policy = Policy::new(config);
+
+    let decision = policy.decide(
+        &subject_executable_with_ancestor(
+            "/usr/bin/bash",
+            "/home/osso/.local/share/claude/versions/2.1.177",
+        ),
+        "/home/osso/.config/claude/shell-snapshots/snapshot-bash-1781470485348-5s68tc.sh",
         AccessKind::Read,
     );
 
