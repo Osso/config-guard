@@ -1,0 +1,125 @@
+# Machine-local policy seed for auditing /etc.
+# Start in audit mode only; tighten from observed FORBID audit logs before guard mode.
+
+fail_open = true
+dev_tools = [
+  "claude",
+  "exe-prefix:/home/osso/.local/share/claude/versions/",
+  "codex",
+  "opencode",
+]
+
+[[owned_paths]]
+path = "/etc"
+owner = "root"
+allowed_subjects = [
+  "arch",
+  "authsudo",
+  "chmod",
+  "chown",
+  "cp",
+  "install",
+  "ln",
+  "mv",
+  "pacman",
+  "sudo-edit",
+]
+
+[[shared_paths]]
+path = "/etc/ld.so.cache"
+allowed_subjects = ["*"]
+
+[[owned_paths]]
+path = "/etc/resolv.conf"
+owner = "resolver"
+allowed_subjects = [
+  "NetworkManager",
+  "systemd-resolved",
+  "resolvconf",
+  "warp-svc",
+]
+
+[[owned_paths]]
+path = "/etc/systemd"
+owner = "systemd"
+allowed_subjects = [
+  "systemctl",
+  "systemd",
+  "systemd-analyze",
+  "systemd-sysusers",
+  "systemd-tmpfiles",
+]
+
+[[owned_paths]]
+path = "/etc/authd"
+owner = "authd"
+allowed_subjects = [
+  "authd",
+  "authsudo",
+  "install",
+  "sudo-edit",
+]
+
+[[owned_paths]]
+path = "/etc/config-guard"
+owner = "config-guard"
+allowed_subjects = [
+  "config-guard",
+  "install",
+  "sudo-edit",
+]
+
+[[owned_paths]]
+path = "/etc/ssh"
+owner = "openssh"
+allowed_subjects = [
+  "sshd",
+  "ssh",
+  "ssh-keygen",
+]
+
+[[owned_paths]]
+path = "/etc/NetworkManager"
+owner = "NetworkManager"
+allowed_subjects = [
+  "NetworkManager",
+  "nmcli",
+]
+
+[[owned_paths]]
+path = "/etc/pacman.d"
+owner = "pacman"
+allowed_subjects = [
+  "pacman",
+  "arch",
+  "gpg",
+  "gpg-agent",
+]
+
+[[owned_paths]]
+path = "/etc/mkinitcpio.d"
+owner = "mkinitcpio"
+allowed_subjects = [
+  "mkinitcpio",
+  "pacman",
+  "arch",
+]
+
+[[owned_paths]]
+path = "/etc/ca-certificates"
+owner = "ca-certificates"
+allowed_subjects = [
+  "trust",
+  "update-ca-trust",
+  "pacman",
+  "arch",
+]
+
+[[sensitive_paths]]
+path = "/etc/ssh"
+
+[[sensitive_paths]]
+path = "/etc/authd"
+
+[[sensitive_paths]]
+path = "/etc/config-guard"
