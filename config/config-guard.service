@@ -4,7 +4,7 @@ After=local-fs.target
 
 [Service]
 Type=simple
-ExecStart=/home/osso/.local/bin/config-guard audit --path /home/osso/.config --path /home/osso/.local --path /etc --path /var/lib --path /var/log --path /var/cache --exclude-path /home/osso/.config/firefox --exclude-path /home/osso/.config/archive --exclude-path /home/osso/.config/vivaldi --exclude-path /home/osso/.config/google-chrome --exclude-path /home/osso/.config/chromium --exclude-path /var/lib/docker --config /home/osso/.config/config-guard/config.toml
+ExecStart=/home/osso/.local/bin/config-guard audit --path /home/osso/.config --path /home/osso/.local/share --path /home/osso/.local/state --path /etc --path /var/lib --path /var/log --path /var/cache --exclude-path /home/osso/.config/archive --exclude-path /var/lib/docker --config /home/osso/.config/config-guard/config.toml
 Restart=always
 RestartSec=5
 StandardOutput=journal

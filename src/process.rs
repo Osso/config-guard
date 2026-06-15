@@ -2,7 +2,7 @@ use crate::policy::ProcessSubject;
 use anyhow::{Context, Result, anyhow};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const WAYLAND_ENV_KEYS: &[&str] = &[
     "WAYLAND_DISPLAY",
@@ -23,11 +23,14 @@ pub struct ProcessIdentity {
 
 impl ProcessIdentity {
     pub fn subject(&self) -> ProcessSubject {
+        let executable = self
+            .executable
+            .clone()
+            .or_else(|| self.command.first().map(PathBuf::from))
+            .unwrap_or_else(|| PathBuf::from("unknown"));
+
         ProcessSubject {
-            executable: self
-                .executable
-                .clone()
-                .unwrap_or_else(|| PathBuf::from("unknown")),
+            executable,
             command: self.command.clone(),
             ancestors: self.ancestors.clone(),
         }
@@ -38,7 +41,7 @@ pub fn inspect_process(pid: i32) -> Result<ProcessIdentity> {
     let proc_dir = PathBuf::from("/proc").join(pid.to_string());
     let executable = fs::read_link(proc_dir.join("exe")).ok();
     let cwd = fs::read_link(proc_dir.join("cwd")).ok();
-    let command = read_cmdline(proc_dir.join("cmdline"))?;
+    let command = read_command(&proc_dir)?;
     let start_time_ticks = read_start_time_ticks(proc_dir.join("stat"))?;
     let ancestors = read_ancestor_executables(pid);
 
@@ -121,6 +124,25 @@ fn read_cmdline(path: PathBuf) -> Result<Vec<String>> {
     let bytes = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
 
     Ok(parse_cmdline(&bytes))
+}
+
+fn read_command(proc_dir: &Path) -> Result<Vec<String>> {
+    let command = read_cmdline(proc_dir.join("cmdline"))?;
+    if !command.is_empty() {
+        return Ok(command);
+    }
+
+    let comm = fs::read_to_string(proc_dir.join("comm")).unwrap_or_default();
+    Ok(parse_comm(&comm).into_iter().collect())
+}
+
+pub fn parse_comm(comm: &str) -> Option<String> {
+    let name = comm.trim();
+    if name.is_empty() {
+        return None;
+    }
+
+    Some(name.to_string())
 }
 
 fn read_start_time_ticks(path: PathBuf) -> Result<Option<u64>> {

@@ -2,9 +2,7 @@ use anyhow::{Context, Result, bail};
 use authd_protocol::collect_wayland_env;
 use clap::{Parser, Subcommand};
 use config_guard::fanotify::{AccessPolicy, Mode, PromptDecisionCache, ensure_path_exists};
-use config_guard::learning::{
-    AuditLearner, PathAlias, config_root_for_home_or_alias, config_symlink_aliases,
-};
+use config_guard::learning::{AuditLearner, PathAlias, config_symlink_aliases};
 use config_guard::policy::{
     AccessKind, Decision, DecisionReason, Policy, PolicyConfig, ProcessSubject,
 };
@@ -243,7 +241,6 @@ fn run_guard(
 
 struct StaticPolicy {
     policy: Policy,
-    home_dir: PathBuf,
     path_aliases: Vec<PathAlias>,
 }
 
@@ -253,17 +250,28 @@ impl StaticPolicy {
 
         Self {
             policy: Policy::new(config),
-            home_dir,
             path_aliases,
         }
     }
 
     fn decision_path<'a>(&'a self, target_path: &'a Path) -> std::borrow::Cow<'a, Path> {
-        match config_root_for_home_or_alias(target_path, &self.home_dir, &self.path_aliases) {
-            Some(config_root) => std::borrow::Cow::Owned(config_root),
-            None => std::borrow::Cow::Borrowed(target_path),
-        }
+        logical_policy_path(target_path, &self.path_aliases)
     }
+}
+
+fn logical_policy_path<'a>(
+    target_path: &'a Path,
+    aliases: &[PathAlias],
+) -> std::borrow::Cow<'a, Path> {
+    for alias in aliases {
+        let Ok(relative_path) = target_path.strip_prefix(&alias.real_root) else {
+            continue;
+        };
+
+        return std::borrow::Cow::Owned(alias.logical_root.join(relative_path));
+    }
+
+    std::borrow::Cow::Borrowed(target_path)
 }
 
 impl AccessPolicy for StaticPolicy {
@@ -391,8 +399,10 @@ fn parse_decision(value: &str) -> Result<Decision> {
 
 #[cfg(test)]
 mod tests {
-    use super::default_config_path_in;
+    use super::{default_config_path_in, logical_policy_path};
+    use config_guard::learning::PathAlias;
     use std::fs;
+    use std::path::PathBuf;
 
     #[test]
     fn default_config_path_uses_config_guard_config_toml() {
@@ -409,5 +419,32 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(config_home);
+    }
+
+    #[test]
+    fn policy_path_preserves_exact_home_path() {
+        let target_path = PathBuf::from("/home/osso/.config/claude/settings.json");
+        let aliases = Vec::new();
+
+        let policy_path = logical_policy_path(&target_path, &aliases);
+
+        assert_eq!(policy_path.as_ref(), target_path.as_path());
+    }
+
+    #[test]
+    fn policy_path_maps_symlink_alias_without_losing_file_suffix() {
+        let aliases = vec![PathAlias {
+            real_root: PathBuf::from("/syncthing/Sync/Provisioning/config/gmail-cli"),
+            logical_root: PathBuf::from("/home/osso/.config/gmail-cli"),
+        }];
+        let target_path =
+            PathBuf::from("/syncthing/Sync/Provisioning/config/gmail-cli/tokens.json");
+
+        let policy_path = logical_policy_path(&target_path, &aliases);
+
+        assert_eq!(
+            policy_path.as_ref(),
+            PathBuf::from("/home/osso/.config/gmail-cli/tokens.json").as_path()
+        );
     }
 }

@@ -275,7 +275,7 @@ fn decide_audit_event(
         let policy_decision = policy.decide(&subject, target_path, access)?;
         log_audit_decision(
             pid,
-            &process.executable,
+            &subject.executable,
             target_path,
             access,
             policy_decision,
@@ -301,7 +301,7 @@ fn decide_guard_event(
     let policy_decision = policy.decide(&subject, target_path, access)?;
     log_audit_decision(
         pid,
-        &process.executable,
+        &subject.executable,
         target_path,
         access,
         policy_decision.clone(),
@@ -320,7 +320,7 @@ fn decide_guard_event(
 
 fn log_audit_decision(
     pid: i32,
-    executable: &Option<PathBuf>,
+    executable: &Path,
     target_path: &Path,
     access: AccessKind,
     decision: Decision,
@@ -330,7 +330,7 @@ fn log_audit_decision(
         Decision::Deny => eprintln!(
             "FORBID audit pid={} exe={} access={:?} path={} decision=Deny",
             pid,
-            display_executable(executable),
+            executable_label(executable),
             access,
             target_path.display()
         ),
@@ -341,7 +341,7 @@ fn log_audit_decision(
         } => eprintln!(
             "FORBID audit pid={} exe={} access={:?} path={} decision=Prompt reason={:?} default={:?} scope={}",
             pid,
-            display_executable(executable),
+            executable_label(executable),
             access,
             target_path.display(),
             reason,
@@ -349,13 +349,6 @@ fn log_audit_decision(
             scope.display()
         ),
     }
-}
-
-fn display_executable(executable: &Option<PathBuf>) -> String {
-    executable
-        .as_ref()
-        .map(|path| executable_label(path))
-        .unwrap_or_else(|| "<unknown>".to_string())
 }
 
 fn resolve_policy_decision(

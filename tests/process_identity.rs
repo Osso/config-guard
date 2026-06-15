@@ -1,4 +1,7 @@
-use config_guard::process::{parse_cmdline, parse_parent_pid, parse_start_time_ticks};
+use config_guard::process::{
+    ProcessIdentity, parse_cmdline, parse_comm, parse_parent_pid, parse_start_time_ticks,
+};
+use std::path::PathBuf;
 
 #[test]
 fn parses_cmdline_nul_separated_arguments() {
@@ -12,6 +15,20 @@ fn parses_empty_cmdline_as_empty_vector() {
     let command = parse_cmdline(b"");
 
     assert!(command.is_empty());
+}
+
+#[test]
+fn parses_proc_comm_without_trailing_newline() {
+    let command = parse_comm("rtk\n");
+
+    assert_eq!(command.as_deref(), Some("rtk"));
+}
+
+#[test]
+fn ignores_empty_proc_comm() {
+    let command = parse_comm("\n");
+
+    assert_eq!(command, None);
 }
 
 #[test]
@@ -41,4 +58,20 @@ fn rejects_proc_stat_without_closing_command_name() {
     let error = parse_start_time_ticks(stat).expect_err("invalid stat should fail");
 
     assert!(error.to_string().contains("closing"));
+}
+
+#[test]
+fn uses_argv0_as_subject_when_exe_link_is_missing() {
+    let process = ProcessIdentity {
+        pid: 1234,
+        executable: None,
+        command: vec!["rtk".to_string(), "query".to_string()],
+        cwd: None,
+        start_time_ticks: Some(42),
+        ancestors: Vec::new(),
+    };
+
+    let subject = process.subject();
+
+    assert_eq!(subject.executable, PathBuf::from("rtk"));
 }
