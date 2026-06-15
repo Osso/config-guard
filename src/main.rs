@@ -1,10 +1,12 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use config_guard::fanotify::{Mode, ensure_path_exists};
-use config_guard::learning::AuditLearner;
-use config_guard::policy::{Policy, PolicyConfig};
-use config_guard::prompt::NonInteractivePrompt;
+use config_guard::fanotify::{AccessPolicy, Mode, ensure_path_exists};
+use config_guard::learning::{
+    AuditLearner, PathAlias, config_root_for_home_or_alias, config_symlink_aliases,
+};
+use config_guard::policy::{AccessKind, Decision, Policy, PolicyConfig, ProcessSubject};
 use config_guard::reconcile::{ActionKind, ReconcileOptions, plan_reconcile};
+use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -20,6 +22,8 @@ enum Command {
     Audit {
         #[arg(long)]
         path: PathBuf,
+        #[arg(long)]
+        config: Option<PathBuf>,
         #[arg(long)]
         learn_output: Option<PathBuf>,
     },
@@ -47,7 +51,11 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     match args.command {
-        Command::Audit { path, learn_output } => run_audit(path, learn_output),
+        Command::Audit {
+            path,
+            config,
+            learn_output,
+        } => run_audit(path, config, learn_output),
         Command::Guard {
             path,
             config,
@@ -62,11 +70,20 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_audit(path: PathBuf, learn_output: Option<PathBuf>) -> Result<()> {
+fn run_audit(path: PathBuf, config: Option<PathBuf>, learn_output: Option<PathBuf>) -> Result<()> {
     ensure_path_exists(&path)?;
     let learner = learn_output.map(|output_path| AuditLearner::new(output_path, audit_home(&path)));
+    let config_path = resolve_config_path(config);
+    let policy_config = load_policy_config(config_path)?;
+    let mut policy = StaticPolicy::new(policy_config, audit_home(&path));
 
-    config_guard::fanotify::run(&path, Mode::Audit { learner })
+    config_guard::fanotify::run(
+        &path,
+        Mode::Audit {
+            learner,
+            policy: Some(&mut policy),
+        },
+    )
 }
 
 fn audit_home(path: &std::path::Path) -> PathBuf {
@@ -84,17 +101,56 @@ fn run_guard(
     timeout_seconds: u64,
 ) -> Result<()> {
     ensure_path_exists(&path)?;
-    let policy = Policy::new(load_policy_config(config)?);
+    let policy_config = load_policy_config(config)?;
+    let mut policy = StaticPolicy::new(policy_config, audit_home(&path));
     let timeout = Duration::from_secs(timeout_seconds);
     let prompt = build_prompt(prompt_command, timeout);
 
     config_guard::fanotify::run(
         &path,
         Mode::Guard {
-            policy: &policy,
+            policy: &mut policy,
             prompt: prompt.as_ref(),
         },
     )
+}
+
+struct StaticPolicy {
+    policy: Policy,
+    home_dir: PathBuf,
+    path_aliases: Vec<PathAlias>,
+}
+
+impl StaticPolicy {
+    fn new(config: PolicyConfig, home_dir: PathBuf) -> Self {
+        let path_aliases = config_symlink_aliases(&home_dir);
+
+        Self {
+            policy: Policy::new(config),
+            home_dir,
+            path_aliases,
+        }
+    }
+
+    fn decision_path<'a>(&'a self, target_path: &'a Path) -> std::borrow::Cow<'a, Path> {
+        match config_root_for_home_or_alias(target_path, &self.home_dir, &self.path_aliases) {
+            Some(config_root) => std::borrow::Cow::Owned(config_root),
+            None => std::borrow::Cow::Borrowed(target_path),
+        }
+    }
+}
+
+impl AccessPolicy for StaticPolicy {
+    fn decide(
+        &mut self,
+        subject: &ProcessSubject,
+        target_path: &Path,
+        access: AccessKind,
+    ) -> Result<Decision> {
+        Ok(self
+            .policy
+            .decide(subject, self.decision_path(target_path).as_ref(), access))
+    }
 }
 
 fn build_prompt(
@@ -103,7 +159,7 @@ fn build_prompt(
 ) -> Box<dyn config_guard::prompt::Prompt> {
     match prompt_command {
         Some(command) => Box::new(config_guard::prompt::CommandPrompt::new(command, timeout)),
-        None => Box::new(NonInteractivePrompt::new(timeout)),
+        None => Box::new(config_guard::prompt::AuthdPrompt::new()),
     }
 }
 

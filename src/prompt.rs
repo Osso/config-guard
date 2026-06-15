@@ -1,5 +1,8 @@
 use crate::policy::{Decision, DecisionReason, ProcessSubject};
 use anyhow::{Context, Result};
+use authd_protocol::{AuthRequest, AuthResponse, SOCKET_PATH};
+use peercred_ipc::Client as IpcClient;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
@@ -10,6 +13,7 @@ pub struct PromptRequest<'a> {
     pub target_path: &'a Path,
     pub reason: DecisionReason,
     pub default_decision: Decision,
+    pub env: HashMap<String, String>,
 }
 
 pub trait Prompt {
@@ -42,6 +46,38 @@ pub struct CommandPrompt {
 impl CommandPrompt {
     pub fn new(command: PathBuf, timeout: Duration) -> Self {
         Self { command, timeout }
+    }
+}
+
+pub struct AuthdPrompt;
+
+impl AuthdPrompt {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Prompt for AuthdPrompt {
+    fn ask(&self, request: &PromptRequest<'_>) -> Result<Decision> {
+        let auth_request = AuthRequest {
+            target: request.subject.executable.clone(),
+            args: vec![
+                format!("requests config access ({:?})", request.reason),
+                request.target_path.display().to_string(),
+            ],
+            env: request.env.clone(),
+            password: String::new(),
+            confirm_only: true,
+        };
+
+        match IpcClient::call(SOCKET_PATH, &auth_request) {
+            Ok(AuthResponse::Success { .. }) => Ok(Decision::Allow),
+            Ok(AuthResponse::Denied { .. }) => Ok(Decision::Deny),
+            Ok(AuthResponse::AuthFailed) => Ok(Decision::Deny),
+            Ok(AuthResponse::UnknownTarget | AuthResponse::Error { .. }) | Err(_) => {
+                Ok(request.default_decision.clone())
+            }
+        }
     }
 }
 

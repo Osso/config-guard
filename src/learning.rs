@@ -203,7 +203,7 @@ fn candidate_owner_for_root(
     })
 }
 
-fn config_symlink_aliases(home: &Path) -> Vec<PathAlias> {
+pub fn config_symlink_aliases(home: &Path) -> Vec<PathAlias> {
     let config_dir = home.join(".config");
     let Ok(entries) = std::fs::read_dir(&config_dir) else {
         return Vec::new();

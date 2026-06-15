@@ -1,7 +1,15 @@
 use crate::policy::ProcessSubject;
 use anyhow::{Context, Result, anyhow};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+
+const WAYLAND_ENV_KEYS: &[&str] = &[
+    "WAYLAND_DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "XDG_SESSION_TYPE",
+    "DBUS_SESSION_BUS_ADDRESS",
+];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProcessIdentity {
@@ -38,6 +46,33 @@ pub fn inspect_process(pid: i32) -> Result<ProcessIdentity> {
         cwd,
         start_time_ticks,
     })
+}
+
+pub fn read_wayland_env(pid: i32) -> HashMap<String, String> {
+    let path = PathBuf::from("/proc").join(pid.to_string()).join("environ");
+    let Ok(bytes) = fs::read(path) else {
+        return HashMap::new();
+    };
+
+    parse_environ(&bytes)
+        .into_iter()
+        .filter(|(key, _)| WAYLAND_ENV_KEYS.contains(&key.as_str()))
+        .collect()
+}
+
+pub fn parse_environ(bytes: &[u8]) -> HashMap<String, String> {
+    bytes
+        .split(|byte| *byte == 0)
+        .filter_map(parse_env_entry)
+        .collect()
+}
+
+fn parse_env_entry(entry: &[u8]) -> Option<(String, String)> {
+    let separator = entry.iter().position(|byte| *byte == b'=')?;
+    let key = String::from_utf8(entry[..separator].to_vec()).ok()?;
+    let value = String::from_utf8(entry[separator + 1..].to_vec()).ok()?;
+
+    Some((key, value))
 }
 
 pub fn parse_cmdline(bytes: &[u8]) -> Vec<String> {

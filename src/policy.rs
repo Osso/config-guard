@@ -84,16 +84,16 @@ impl Policy {
         let target_path = target_path.as_ref();
         let subject_name = subject_name(subject);
 
-        if self.is_sensitive_dev_tool_access(&subject_name, target_path) {
+        if self.is_sensitive_dev_tool_access(subject, &subject_name, target_path) {
             return self.prompt_for_sensitive_access(access);
         }
 
-        if self.shared_path_allows(&subject_name, target_path) {
+        if self.shared_path_allows(subject, &subject_name, target_path) {
             return Decision::Allow;
         }
 
         match self.owner_for(target_path) {
-            Some(owner) if owner.allows(&subject_name) => Decision::Allow,
+            Some(owner) if owner.allows(subject, &subject_name) => Decision::Allow,
             Some(_) => self.prompt_for_cross_owner_access(access),
             None => Decision::Allow,
         }
@@ -118,21 +118,25 @@ impl Policy {
             .find(|owner| target_path.starts_with(&owner.path))
     }
 
-    fn shared_path_allows(&self, subject_name: &str, target_path: &Path) -> bool {
+    fn shared_path_allows(
+        &self,
+        subject: &ProcessSubject,
+        subject_name: &str,
+        target_path: &Path,
+    ) -> bool {
         self.config.shared_paths.iter().any(|shared| {
             target_path.starts_with(&shared.path)
-                && shared
-                    .allowed_subjects
-                    .iter()
-                    .any(|allowed| allowed == subject_name)
+                && subjects_allow(&shared.allowed_subjects, subject, subject_name)
         })
     }
 
-    fn is_sensitive_dev_tool_access(&self, subject_name: &str, target_path: &Path) -> bool {
-        self.config
-            .dev_tools
-            .iter()
-            .any(|tool| tool == subject_name)
+    fn is_sensitive_dev_tool_access(
+        &self,
+        subject: &ProcessSubject,
+        subject_name: &str,
+        target_path: &Path,
+    ) -> bool {
+        subjects_allow(&self.config.dev_tools, subject, subject_name)
             && self
                 .config
                 .sensitive_paths
@@ -167,13 +171,35 @@ impl Policy {
 }
 
 impl OwnedPath {
-    fn allows(&self, subject_name: &str) -> bool {
-        self.owner == subject_name
-            || self
-                .allowed_subjects
-                .iter()
-                .any(|allowed| allowed == subject_name)
+    fn allows(&self, subject: &ProcessSubject, subject_name: &str) -> bool {
+        self.owner == subject_name || subjects_allow(&self.allowed_subjects, subject, subject_name)
     }
+}
+
+fn subjects_allow(
+    allowed_subjects: &[String],
+    subject: &ProcessSubject,
+    subject_name: &str,
+) -> bool {
+    allowed_subjects
+        .iter()
+        .any(|allowed| subject_matches(allowed, subject, subject_name))
+}
+
+fn subject_matches(allowed: &str, subject: &ProcessSubject, subject_name: &str) -> bool {
+    if allowed == "*" || allowed == subject_name {
+        return true;
+    }
+
+    if let Some(prefix) = allowed.strip_prefix("exe-prefix:") {
+        return subject.executable.starts_with(prefix);
+    }
+
+    if let Some(path) = allowed.strip_prefix("exe:") {
+        return subject.executable == Path::new(path);
+    }
+
+    false
 }
 
 impl Default for PolicyConfig {
@@ -194,6 +220,18 @@ pub fn subject_name(subject: &ProcessSubject) -> String {
         .file_name()
         .and_then(|name| name.to_str())
         .or_else(|| subject.command.first().map(String::as_str))
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+pub fn executable_label(executable: &Path) -> String {
+    if executable.starts_with("/home/osso/.local/share/claude/versions") {
+        return format!("claude:{}", executable.display());
+    }
+
+    executable
+        .file_name()
+        .and_then(|name| name.to_str())
         .unwrap_or("unknown")
         .to_string()
 }

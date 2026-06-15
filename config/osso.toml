@@ -4,6 +4,7 @@
 fail_open = true
 dev_tools = [
   "claude",
+  "exe-prefix:/home/osso/.local/share/claude/versions/",
   "codex",
   "opencode",
   "cursor",
@@ -20,7 +21,11 @@ allowed_subjects = []
 [[owned_paths]]
 path = "/home/osso/.config/claude"
 owner = "claude"
-allowed_subjects = ["codex", "claude-memory"]
+allowed_subjects = [
+  "codex",
+  "claude-memory",
+  "exe-prefix:/home/osso/.local/share/claude/versions/",
+]
 
 [[owned_paths]]
 path = "/home/osso/.config/codex"
@@ -60,7 +65,7 @@ allowed_subjects = []
 [[owned_paths]]
 path = "/home/osso/.config/firefox"
 owner = "firefox"
-allowed_subjects = []
+allowed_subjects = ["firefox-profile-backup"]
 
 [[owned_paths]]
 path = "/home/osso/.config/gh"
@@ -98,6 +103,11 @@ owner = "rtk"
 allowed_subjects = []
 
 [[owned_paths]]
+path = "/home/osso/.config/sentry"
+owner = "sentry"
+allowed_subjects = []
+
+[[owned_paths]]
 path = "/home/osso/.config/tplink"
 owner = "tplink"
 allowed_subjects = []
@@ -106,6 +116,222 @@ allowed_subjects = []
 path = "/home/osso/.config/unifi"
 owner = "unifi"
 allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/internetbs"
+owner = "internetbs"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/llm-bench"
+owner = "llm-bench"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/t3code"
+owner = "t3-code"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/bitbucket-cli"
+owner = "bitbucket"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/reddit-desktop"
+owner = "reddit"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/claude-remote"
+owner = "claude-remote"
+allowed_subjects = ["claude-remote-server"]
+
+[[owned_paths]]
+path = "/home/osso/.config/email-assistant"
+owner = "email-assistant"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/oaknode"
+owner = "deploy.sh"
+allowed_subjects = ["install-spare-ssd.sh"]
+
+[[owned_paths]]
+path = "/home/osso/.config/posthog"
+owner = "posthog"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/Keybase"
+owner = "keybase"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/keybase"
+owner = "keybase"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/sinew.in"
+owner = "enpass"
+allowed_subjects = ["enpass-gui", "enpass-sandboxed"]
+
+[[owned_paths]]
+path = "/home/osso/.config/outlook-cli"
+owner = "outlook"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/@trezor"
+owner = "trezor-suite"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/world-of-osso"
+owner = "game-engine"
+allowed_subjects = ["game-engine-cli", "game-cli", "game-server", "game-server-admin"]
+
+[[owned_paths]]
+path = "/home/osso/.config/google-chrome"
+owner = "google-chrome"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/xdg-desktop-portal"
+owner = "xdg-desktop-portal"
+allowed_subjects = ["xdg-desktop-portal-termfilechooser"]
+
+[[owned_paths]]
+path = "/home/osso/.config/zed"
+owner = "zeditor"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/systemd"
+owner = "systemd"
+allowed_subjects = [
+  "systemctl",
+  "systemd-ac-power",
+  "systemd-analyze",
+  "systemd-ask-password",
+  "systemd-backlight",
+  "systemd-battery-check",
+  "systemd-binfmt",
+  "systemd-bless-boot",
+  "systemd-boot-check-no-failures",
+  "systemd-bsod",
+  "systemd-cat",
+  "systemd-cgls",
+  "systemd-cgtop",
+  "systemd-confext",
+  "systemd-coredump",
+  "systemd-creds",
+  "systemd-cryptenroll",
+  "systemd-cryptsetup",
+  "systemd-delta",
+  "systemd-detect-virt",
+  "systemd-dissect",
+  "systemd-escape",
+  "systemd-executor",
+  "systemd-export",
+  "systemd-factory-reset",
+  "systemd-firstboot",
+  "systemd-fsck",
+  "systemd-growfs",
+  "systemd-hibernate-resume",
+  "systemd-homed",
+  "systemd-home-fallback-shell",
+  "systemd-homework",
+  "systemd-hostnamed",
+  "systemd-hwdb",
+  "systemd-id128",
+  "systemd-import",
+  "systemd-importd",
+  "systemd-import-fs",
+  "systemd-inhibit",
+  "systemd-integritysetup",
+  "systemd-journald",
+  "systemd-journal-gatewayd",
+  "systemd-journal-remote",
+  "systemd-journal-upload",
+  "systemd-keyutil",
+  "systemd-localed",
+  "systemd-logind",
+  "systemd-machined",
+  "systemd-machine-id-setup",
+  "systemd-makefs",
+  "systemd-measure",
+  "systemd-modules-load",
+  "systemd-mount",
+  "systemd-mountfsd",
+  "systemd-mountwork",
+  "systemd-mstack",
+  "systemd-mute-console",
+  "systemd-networkd",
+  "systemd-networkd-wait-online",
+  "systemd-network-generator",
+  "systemd-notify",
+  "systemd-nspawn",
+  "systemd-nsresourced",
+  "systemd-nsresourcework",
+  "systemd-oomd",
+  "systemd-path",
+  "systemd-pcrextend",
+  "systemd-pcrlock",
+  "systemd-portabled",
+  "systemd-pstore",
+  "systemd-pty-forward",
+  "systemd-pull",
+  "systemd-quotacheck",
+  "systemd-random-seed",
+  "systemd-remount-fs",
+  "systemd-repart",
+  "systemd-reply-password",
+  "systemd-report",
+  "systemd-resolve",
+  "systemd-resolved",
+  "systemd-rfkill",
+  "systemd-run",
+  "systemd-sbsign",
+  "systemd-shutdown",
+  "systemd-sleep",
+  "systemd-socket-activate",
+  "systemd-socket-proxyd",
+  "systemd-ssh-issue",
+  "systemd-ssh-proxy",
+  "systemd-stdio-bridge",
+  "systemd-storagetm",
+  "systemd-sulogin-shell",
+  "systemd-sysctl",
+  "systemd-sysext",
+  "systemd-sysroot-fstab-check",
+  "systemd-sysupdate",
+  "systemd-sysupdated",
+  "systemd-sysusers",
+  "systemd-timedated",
+  "systemd-timesyncd",
+  "systemd-time-wait-sync",
+  "systemd-tmpfiles",
+  "systemd-tpm2-clear",
+  "systemd-tpm2-setup",
+  "systemd-tty-ask-password-agent",
+  "systemd-udevd",
+  "systemd-umount",
+  "systemd-update-done",
+  "systemd-update-utmp",
+  "systemd-userdbd",
+  "systemd-user-runtime-dir",
+  "systemd-user-sessions",
+  "systemd-userwork",
+  "systemd-validatefs",
+  "systemd-vconsole-setup",
+  "systemd-veritysetup",
+  "systemd-vmspawn",
+  "systemd-volatile-root",
+  "systemd-vpick",
+  "systemd-xdg-autostart-condition",
+]
 
 [[owned_paths]]
 path = "/home/osso/.kube"
@@ -121,8 +347,36 @@ path = "/home/osso/.config/shell"
 allowed_subjects = ["zsh", "bash"]
 
 [[shared_paths]]
+path = "/home/osso/.config/shells"
+allowed_subjects = ["zsh", "bash"]
+
+[[shared_paths]]
 path = "/home/osso/.config/zsh"
 allowed_subjects = ["zsh"]
+
+[[shared_paths]]
+path = "/home/osso/.config/gtk-2.0"
+allowed_subjects = ["*"]
+
+[[shared_paths]]
+path = "/home/osso/.config/glib-2.0"
+allowed_subjects = ["*"]
+
+[[shared_paths]]
+path = "/home/osso/.config/gtk-3.0"
+allowed_subjects = ["*"]
+
+[[shared_paths]]
+path = "/home/osso/.config/gtk-4.0"
+allowed_subjects = ["*"]
+
+[[shared_paths]]
+path = "/home/osso/.config/qt5ct"
+allowed_subjects = ["*"]
+
+[[shared_paths]]
+path = "/home/osso/.config/qt6ct"
+allowed_subjects = ["*"]
 
 [[sensitive_paths]]
 path = "/home/osso/.codex"
@@ -168,3 +422,298 @@ path = "/home/osso/.kube"
 
 [[sensitive_paths]]
 path = "/home/osso/.ssh"
+
+[[owned_paths]]
+path = "/home/osso/.config/@checkly"
+owner = "checkly"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/Antigravity"
+owner = "antigravity"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/Codex"
+owner = "codex"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/GIMP"
+owner = "gimp"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/Slack"
+owner = "slack"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/Thunar"
+owner = "Thunar"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/agent-orchestrator"
+owner = "agent-orchestrator"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/appfw"
+owner = "appfw"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/ask"
+owner = "ask"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/att-gateway"
+owner = "att-gateway"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/bash"
+owner = "bash"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/checkly-cli"
+owner = "checkly"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/chromium"
+owner = "chromium"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/claude-bash-hook"
+owner = "claude-bash-hook"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/code-index"
+owner = "code-index"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/codex-desktop"
+owner = "codex-desktop"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/codex-update-manager"
+owner = "codex-update-manager"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/composer"
+owner = "composer"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/config-guard"
+owner = "config-guard"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/dconf"
+owner = "dconf"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/depot"
+owner = "depot"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/discord"
+owner = "discord"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/discord-cli"
+owner = "discord"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/gcloud"
+owner = "gcloud"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/ghidra"
+owner = "ghidra"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/ghostty"
+owner = "ghostty"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/glab-cli"
+owner = "glab"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/go"
+owner = "go"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/groundcover"
+owner = "groundcover"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/gthumb"
+owner = "gthumb"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/hass"
+owner = "hass"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/helm"
+owner = "helm"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/htop"
+owner = "htop"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/jump"
+owner = "jump"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/k9s"
+owner = "k9s"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/kagi"
+owner = "kagi"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/lazydocker"
+owner = "lazydocker"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/llm-mcp"
+owner = "llm-mcp"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/lutron"
+owner = "lutron"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/mailgun-cli"
+owner = "mailgun"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/mpv"
+owner = "mpv"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/nano"
+owner = "nano"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/niri"
+owner = "niri"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/noctalia"
+owner = "quickshell"
+allowed_subjects = ["qs", "noctalia-shell"]
+
+[[owned_paths]]
+path = "/home/osso/.config/nix"
+owner = "nix"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/openrouter"
+owner = "openrouter"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/pacdef"
+owner = "pacdef"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/pipewire"
+owner = "pipewire"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/rainmachine"
+owner = "rainmachine"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/rclone"
+owner = "rclone"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/relax-player"
+owner = "relax-player"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/samsungtv"
+owner = "samsungtv"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/sccache"
+owner = "sccache"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/slack"
+owner = "slack"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/syncthing"
+owner = "syncthing"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/syncthing-cli"
+owner = "syncthing"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/vivaldi"
+owner = "vivaldi"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/wireplumber"
+owner = "wireplumber"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/yazi"
+owner = "yazi"
+allowed_subjects = []

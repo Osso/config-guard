@@ -1,6 +1,6 @@
 use crate::learning::AuditLearner;
-use crate::policy::{AccessKind, Decision, Policy};
-use crate::process::inspect_process;
+use crate::policy::{AccessKind, Decision, ProcessSubject, executable_label};
+use crate::process::{ProcessIdentity, inspect_process, read_wayland_env};
 use crate::prompt::{Prompt, PromptRequest};
 use anyhow::{Context, Result, anyhow};
 use libc::{
@@ -19,11 +19,21 @@ const EVENT_BUFFER_SIZE: usize = 8192;
 pub enum Mode<'a> {
     Audit {
         learner: Option<AuditLearner>,
+        policy: Option<&'a mut dyn AccessPolicy>,
     },
     Guard {
-        policy: &'a Policy,
+        policy: &'a mut dyn AccessPolicy,
         prompt: &'a dyn Prompt,
     },
+}
+
+pub trait AccessPolicy {
+    fn decide(
+        &mut self,
+        subject: &ProcessSubject,
+        target_path: &Path,
+        access: AccessKind,
+    ) -> Result<Decision>;
 }
 
 pub fn run(path: &Path, mode: Mode<'_>) -> Result<()> {
@@ -182,46 +192,142 @@ fn decide_event(
     };
 
     match mode {
-        Mode::Audit { learner } => {
-            eprintln!(
-                "ALLOW audit pid={} exe={} access={:?} path={}",
-                metadata.pid,
-                process
-                    .executable
-                    .as_ref()
-                    .map(|path| path.display().to_string())
-                    .unwrap_or_else(|| "<unknown>".to_string()),
-                access,
-                target_path.display()
-            );
-            if let Some(learner) = learner {
-                learner.observe(&process.subject(), target_path, access)?;
-            }
-            Ok(Decision::Allow)
+        Mode::Audit { learner, policy } => {
+            decide_audit_event(metadata.pid, &process, target_path, access, learner, policy)
         }
-        Mode::Guard { policy, prompt } => {
-            let subject = process.subject();
-            let policy_decision = policy.decide(&subject, target_path, access);
-            resolve_policy_decision(*prompt, &subject, target_path, policy_decision)
-        }
+        Mode::Guard { policy, prompt } => decide_guard_event(
+            metadata.pid,
+            &process,
+            target_path,
+            access,
+            *policy,
+            *prompt,
+        ),
     }
+}
+
+fn decide_audit_event(
+    pid: i32,
+    process: &ProcessIdentity,
+    target_path: &Path,
+    access: AccessKind,
+    learner: &mut Option<AuditLearner>,
+    policy: &mut Option<&mut dyn AccessPolicy>,
+) -> Result<Decision> {
+    let subject = process.subject();
+    if let Some(policy) = policy.as_deref_mut() {
+        let policy_decision = policy.decide(&subject, target_path, access)?;
+        log_audit_decision(
+            pid,
+            &process.executable,
+            target_path,
+            access,
+            policy_decision,
+        );
+    }
+    if let Some(learner) = learner.as_mut() {
+        learner.observe(&subject, target_path, access)?;
+    }
+
+    Ok(Decision::Allow)
+}
+
+fn decide_guard_event(
+    pid: i32,
+    process: &ProcessIdentity,
+    target_path: &Path,
+    access: AccessKind,
+    policy: &mut dyn AccessPolicy,
+    prompt: &dyn Prompt,
+) -> Result<Decision> {
+    let subject = process.subject();
+    let policy_decision = policy.decide(&subject, target_path, access)?;
+
+    resolve_policy_decision(
+        prompt,
+        &subject,
+        target_path,
+        read_wayland_env(pid),
+        policy_decision,
+    )
+}
+
+fn log_audit_decision(
+    pid: i32,
+    executable: &Option<PathBuf>,
+    target_path: &Path,
+    access: AccessKind,
+    decision: Decision,
+) {
+    match decision {
+        Decision::Allow => {}
+        Decision::Deny => eprintln!(
+            "FORBID audit pid={} exe={} access={:?} path={} decision=Deny",
+            pid,
+            display_executable(executable),
+            access,
+            target_path.display()
+        ),
+        Decision::Prompt { reason, default } => eprintln!(
+            "FORBID audit pid={} exe={} access={:?} path={} decision=Prompt reason={:?} default={:?}",
+            pid,
+            display_executable(executable),
+            access,
+            target_path.display(),
+            reason,
+            default
+        ),
+    }
+}
+
+fn display_executable(executable: &Option<PathBuf>) -> String {
+    executable
+        .as_ref()
+        .map(|path| executable_label(path))
+        .unwrap_or_else(|| "<unknown>".to_string())
 }
 
 fn resolve_policy_decision(
     prompt: &dyn Prompt,
     subject: &crate::policy::ProcessSubject,
     target_path: &Path,
+    env: std::collections::HashMap<String, String>,
     decision: Decision,
 ) -> Result<Decision> {
-    match decision {
-        Decision::Prompt { reason, default } => prompt.ask(&PromptRequest {
-            subject,
-            target_path,
-            reason,
-            default_decision: *default,
-        }),
-        other => Ok(other),
-    }
+    let Decision::Prompt { reason, default } = decision else {
+        return Ok(decision);
+    };
+
+    let default_decision = *default;
+    let request = PromptRequest {
+        subject,
+        target_path,
+        reason,
+        default_decision: default_decision.clone(),
+        env,
+    };
+
+    Ok(prompt.ask(&request).unwrap_or_else(|error| {
+        prompt_failure_decision(subject, target_path, reason, default_decision, error)
+    }))
+}
+
+fn prompt_failure_decision(
+    subject: &ProcessSubject,
+    target_path: &Path,
+    reason: crate::policy::DecisionReason,
+    default_decision: Decision,
+    error: anyhow::Error,
+) -> Decision {
+    eprintln!(
+        "prompt failed subject={} path={} reason={:?}: {error:#}; using default {:?}",
+        subject.executable.display(),
+        target_path.display(),
+        reason,
+        default_decision
+    );
+
+    default_decision
 }
 
 fn respond_to_permission_event(
