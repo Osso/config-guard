@@ -33,9 +33,11 @@ allowed_subjects = [
 path = "/home/osso/.config/claude/shell-snapshots"
 owner = "claude-shell-snapshots"
 allowed_subjects = [
+  "cat",
   "exe-with-ancestor-prefix:/usr/bin/bash:/home/osso/.local/share/claude/versions/",
   "exe-with-ancestor-prefix:/usr/bin/cat:/home/osso/.local/share/claude/versions/",
   "exe-with-ancestor-prefix:/usr/bin/head:/home/osso/.local/share/claude/versions/",
+  "head",
 ]
 
 [[shared_paths]]
@@ -130,7 +132,10 @@ allowed_subjects = ["rtk"]
 [[owned_paths]]
 path = "/home/osso/.local/share/gvfs-metadata"
 owner = "gvfsd-metadata"
-allowed_subjects = ["gvfsd-metadata"]
+allowed_subjects = [
+  "gvfsd-metadata",
+  "thunar",
+]
 
 [[owned_paths]]
 path = "/home/osso/.local/state/qdrant"
@@ -534,7 +539,7 @@ allowed_subjects = []
 [[owned_paths]]
 path = "/home/osso/.config/Thunar"
 owner = "Thunar"
-allowed_subjects = []
+allowed_subjects = ["thunar"]
 
 [[owned_paths]]
 path = "/home/osso/.config/agent-orchestrator"
@@ -605,7 +610,9 @@ allowed_subjects = []
 path = "/home/osso/.config/dconf"
 owner = "dconf"
 allowed_subjects = [
+  "gvfs-udisks2-volume-monitor",
   "gsettings",
+  "thunar",
   "vivaldi-bin",
   "xdg-desktop-portal-gtk",
 ]
@@ -845,9 +852,24 @@ owner = "vivaldi"
 allowed_subjects = ["vivaldi-bin"]
 
 [[owned_paths]]
+path = "/home/osso/.local/share/Trash"
+owner = "trash"
+allowed_subjects = ["gvfsd-trash"]
+
+[[owned_paths]]
 path = "/home/osso/.local/share/keyrings"
 owner = "gnome-keyring"
 allowed_subjects = ["gnome-keyring-daemon"]
+
+[[shared_paths]]
+path = "/home/osso/.local/share/mime"
+allowed_subjects = ["thunar"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/home/osso/.local/share/recently-used.xbel"
+allowed_subjects = ["thunar"]
+access = ["read"]
 
 [[shared_paths]]
 path = "/home/osso/.local/share/applications"
@@ -1022,7 +1044,21 @@ access = ["read"]
 
 [[shared_paths]]
 path = "/etc/fstab"
-allowed_subjects = ["systemd-fstab-generator"]
+allowed_subjects = [
+  "gvfs-udisks2-volume-monitor",
+  "systemd-fstab-generator",
+  "udisksd",
+]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/libblockdev"
+allowed_subjects = ["udisksd"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/udisks2"
+allowed_subjects = ["udisksd"]
 access = ["read"]
 
 [[shared_paths]]
