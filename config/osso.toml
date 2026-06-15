@@ -916,6 +916,16 @@ allowed_subjects = ["bash", "zsh", "fish", "sh"]
 access = ["read"]
 
 [[shared_paths]]
+path = "/etc/bash.bashrc"
+allowed_subjects = ["bash"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/inputrc"
+allowed_subjects = ["bash", "zsh", "fish", "sh"]
+access = ["read"]
+
+[[shared_paths]]
 path = "/etc/zsh"
 allowed_subjects = ["zsh"]
 access = ["read"]
