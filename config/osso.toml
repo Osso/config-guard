@@ -22,6 +22,7 @@ allowed_subjects = []
 path = "/home/osso/.config/claude"
 owner = "claude"
 allowed_subjects = [
+  "claude-architect",
   "codex",
   "claude-memory",
   "exe-prefix:/home/osso/.local/share/claude/versions/",
@@ -37,6 +38,7 @@ access = ["read"]
 path = "/home/osso/.local/state/claude"
 owner = "claude"
 allowed_subjects = [
+  "claude-architect",
   "exe-prefix:/home/osso/.local/share/claude/versions/",
 ]
 
@@ -45,6 +47,7 @@ path = "/home/osso/.local/share/claude"
 owner = "claude"
 allowed_subjects = [
   "bash",
+  "claude-architect",
   "zsh",
   "exe-prefix:/home/osso/.local/share/claude/versions/",
 ]
