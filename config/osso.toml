@@ -120,6 +120,11 @@ owner = "wireplumber"
 allowed_subjects = ["wireplumber"]
 
 [[owned_paths]]
+path = "/home/osso/.local/state/power-profiles-daemon"
+owner = "power-profiles-daemon"
+allowed_subjects = ["power-profiles-daemon"]
+
+[[owned_paths]]
 path = "/home/osso/.config/gh"
 owner = "gh"
 allowed_subjects = ["git"]
@@ -976,6 +981,26 @@ access = ["read"]
 [[shared_paths]]
 path = "/home/osso/.local/share/icons"
 allowed_subjects = ["*"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/home/osso/.config/claude/.gitignore"
+allowed_subjects = ["fd"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/home/osso/.config/claude/.git/info/exclude"
+allowed_subjects = ["fd"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/home/osso/.config/opencode/.gitignore"
+allowed_subjects = ["fd"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/home/osso/.config/vivaldi/.gitignore"
+allowed_subjects = ["fd"]
 access = ["read"]
 
 [[shared_paths]]
