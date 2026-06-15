@@ -1,5 +1,5 @@
 use crate::learning::AuditLearner;
-use crate::policy::{AccessKind, Decision, ProcessSubject, executable_label};
+use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject, executable_label};
 use crate::process::{ProcessIdentity, inspect_process, read_wayland_env};
 use crate::prompt::{Prompt, PromptRequest};
 use anyhow::{Context, Result, anyhow};
@@ -8,6 +8,7 @@ use libc::{
     FAN_DENY, FAN_EVENT_ON_CHILD, FAN_MARK_ADD, FAN_OPEN_PERM, O_CLOEXEC, O_RDONLY, c_void, close,
     fanotify_event_metadata, fanotify_response, read, write,
 };
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs;
 use std::mem;
@@ -24,6 +25,7 @@ pub enum Mode<'a> {
     Guard {
         policy: &'a mut dyn AccessPolicy,
         prompt: &'a dyn Prompt,
+        prompt_cache: PromptDecisionCache,
     },
 }
 
@@ -34,6 +36,30 @@ pub trait AccessPolicy {
         target_path: &Path,
         access: AccessKind,
     ) -> Result<Decision>;
+}
+
+#[derive(Default)]
+pub struct PromptDecisionCache {
+    decisions: HashMap<PromptDecisionKey, Decision>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct PromptDecisionKey {
+    pid: i32,
+    executable: Option<PathBuf>,
+    access: AccessKind,
+    reason: DecisionReason,
+    scope: PathBuf,
+}
+
+impl PromptDecisionCache {
+    fn get(&self, key: &PromptDecisionKey) -> Option<Decision> {
+        self.decisions.get(key).cloned()
+    }
+
+    fn insert(&mut self, key: PromptDecisionKey, decision: Decision) {
+        self.decisions.insert(key, decision);
+    }
 }
 
 pub fn run(path: &Path, mode: Mode<'_>) -> Result<()> {
@@ -195,13 +221,18 @@ fn decide_event(
         Mode::Audit { learner, policy } => {
             decide_audit_event(metadata.pid, &process, target_path, access, learner, policy)
         }
-        Mode::Guard { policy, prompt } => decide_guard_event(
+        Mode::Guard {
+            policy,
+            prompt,
+            prompt_cache,
+        } => decide_guard_event(
             metadata.pid,
             &process,
             target_path,
             access,
             *policy,
             *prompt,
+            prompt_cache,
         ),
     }
 }
@@ -239,6 +270,7 @@ fn decide_guard_event(
     access: AccessKind,
     policy: &mut dyn AccessPolicy,
     prompt: &dyn Prompt,
+    prompt_cache: &mut PromptDecisionCache,
 ) -> Result<Decision> {
     let subject = process.subject();
     let policy_decision = policy.decide(&subject, target_path, access)?;
@@ -252,6 +284,8 @@ fn decide_guard_event(
 
     resolve_policy_decision(
         prompt,
+        prompt_cache,
+        PromptDecisionKey::new(pid, process.executable.clone(), access, &policy_decision),
         &subject,
         target_path,
         read_wayland_env(pid),
@@ -275,14 +309,19 @@ fn log_audit_decision(
             access,
             target_path.display()
         ),
-        Decision::Prompt { reason, default } => eprintln!(
-            "FORBID audit pid={} exe={} access={:?} path={} decision=Prompt reason={:?} default={:?}",
+        Decision::Prompt {
+            reason,
+            default,
+            scope,
+        } => eprintln!(
+            "FORBID audit pid={} exe={} access={:?} path={} decision=Prompt reason={:?} default={:?} scope={}",
             pid,
             display_executable(executable),
             access,
             target_path.display(),
             reason,
-            default
+            default,
+            scope.display()
         ),
     }
 }
@@ -296,14 +335,25 @@ fn display_executable(executable: &Option<PathBuf>) -> String {
 
 fn resolve_policy_decision(
     prompt: &dyn Prompt,
+    prompt_cache: &mut PromptDecisionCache,
+    prompt_key: Option<PromptDecisionKey>,
     subject: &crate::policy::ProcessSubject,
     target_path: &Path,
     env: std::collections::HashMap<String, String>,
     decision: Decision,
 ) -> Result<Decision> {
-    let Decision::Prompt { reason, default } = decision else {
+    let Decision::Prompt {
+        reason,
+        default,
+        scope: _,
+    } = decision
+    else {
         return Ok(decision);
     };
+
+    if let Some(decision) = prompt_key.as_ref().and_then(|key| prompt_cache.get(key)) {
+        return Ok(decision);
+    }
 
     let default_decision = *default;
     let request = PromptRequest {
@@ -314,9 +364,43 @@ fn resolve_policy_decision(
         env,
     };
 
-    Ok(prompt.ask(&request).unwrap_or_else(|error| {
-        prompt_failure_decision(subject, target_path, reason, default_decision, error)
-    }))
+    match prompt.ask(&request) {
+        Ok(decision) => {
+            if let Some(key) = prompt_key {
+                prompt_cache.insert(key, decision.clone());
+            }
+
+            Ok(decision)
+        }
+        Err(error) => Ok(prompt_failure_decision(
+            subject,
+            target_path,
+            reason,
+            default_decision,
+            error,
+        )),
+    }
+}
+
+impl PromptDecisionKey {
+    fn new(
+        pid: i32,
+        executable: Option<PathBuf>,
+        access: AccessKind,
+        decision: &Decision,
+    ) -> Option<Self> {
+        let Decision::Prompt { reason, scope, .. } = decision else {
+            return None;
+        };
+
+        Some(Self {
+            pid,
+            executable,
+            access,
+            reason: *reason,
+            scope: scope.clone(),
+        })
+    }
 }
 
 fn prompt_failure_decision(

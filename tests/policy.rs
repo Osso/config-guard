@@ -132,6 +132,7 @@ fn ancestor_executable_prefix_does_not_allow_bash_without_claude_parent() {
         Decision::Prompt {
             reason: DecisionReason::CrossOwnerWrite,
             default: Box::new(Decision::Allow),
+            scope: PathBuf::from("/home/osso/.config/claude"),
         }
     );
 }
@@ -187,6 +188,7 @@ fn claude_versioned_binary_does_not_implicitly_match_claude_owner() {
         Decision::Prompt {
             reason: DecisionReason::CrossOwnerWrite,
             default: Box::new(Decision::Allow),
+            scope: PathBuf::from("/home/osso/.config/claude"),
         }
     );
 }
@@ -208,6 +210,7 @@ fn claude_versioned_binary_can_be_classified_as_dev_tool_by_prefix() {
         Decision::Prompt {
             reason: DecisionReason::SensitiveReadByDevTool,
             default: Box::new(Decision::Allow),
+            scope: PathBuf::from("/home/osso/.config/gh"),
         }
     );
 }
@@ -287,6 +290,7 @@ fn cross_owner_read_prompts_with_fail_open_default() {
         Decision::Prompt {
             reason: DecisionReason::CrossOwnerRead,
             default: Box::new(Decision::Allow),
+            scope: PathBuf::from("/home/osso/.config/kitty"),
         }
     );
 }
@@ -306,6 +310,7 @@ fn cross_owner_write_prompts_as_stronger_write_reason() {
         Decision::Prompt {
             reason: DecisionReason::CrossOwnerWrite,
             default: Box::new(Decision::Allow),
+            scope: PathBuf::from("/home/osso/.config/kitty"),
         }
     );
 }
@@ -325,6 +330,7 @@ fn sensitive_paths_prompt_for_llm_tools_even_on_reads() {
         Decision::Prompt {
             reason: DecisionReason::SensitiveReadByDevTool,
             default: Box::new(Decision::Allow),
+            scope: PathBuf::from("/home/osso/.config/gh"),
         }
     );
 }

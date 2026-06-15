@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use authd_protocol::collect_wayland_env;
 use clap::{Parser, Subcommand};
-use config_guard::fanotify::{AccessPolicy, Mode, ensure_path_exists};
+use config_guard::fanotify::{AccessPolicy, Mode, PromptDecisionCache, ensure_path_exists};
 use config_guard::learning::{
     AuditLearner, PathAlias, config_root_for_home_or_alias, config_symlink_aliases,
 };
@@ -168,6 +168,7 @@ fn run_guard(
         Mode::Guard {
             policy: &mut policy,
             prompt: prompt.as_ref(),
+            prompt_cache: PromptDecisionCache::default(),
         },
     )
 }

@@ -36,6 +36,7 @@ fn osso_config_prompts_for_dev_tool_reading_sensitive_config() {
         Decision::Prompt {
             reason: DecisionReason::SensitiveReadByDevTool,
             default: Box::new(Decision::Allow),
+            scope: std::path::PathBuf::from("/home/osso/.config/github-cli"),
         }
     );
 }

@@ -8,7 +8,7 @@ pub struct ProcessSubject {
     pub ancestors: Vec<PathBuf>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum AccessKind {
     Read,
     Write,
@@ -22,10 +22,11 @@ pub enum Decision {
     Prompt {
         reason: DecisionReason,
         default: Box<Decision>,
+        scope: PathBuf,
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum DecisionReason {
     CrossOwnerRead,
     CrossOwnerWrite,
@@ -94,12 +95,14 @@ impl Policy {
             return Decision::Allow;
         }
 
-        if self.is_sensitive_dev_tool_access(subject, &subject_name, target_path) {
-            return self.prompt_for_sensitive_access(access);
+        if let Some(sensitive_rule) =
+            self.sensitive_dev_tool_access(subject, &subject_name, target_path)
+        {
+            return self.prompt_for_sensitive_access(access, &sensitive_rule.path);
         }
 
         match owner {
-            Some(_) => self.prompt_for_cross_owner_access(access),
+            Some(owner) => self.prompt_for_cross_owner_access(access, &owner.path),
             None => Decision::Allow,
         }
     }
@@ -136,42 +139,46 @@ impl Policy {
         })
     }
 
-    fn is_sensitive_dev_tool_access(
+    fn sensitive_dev_tool_access(
         &self,
         subject: &ProcessSubject,
         subject_name: &str,
         target_path: &Path,
-    ) -> bool {
-        subjects_allow(&self.config.dev_tools, subject, subject_name)
-            && self
-                .config
-                .sensitive_paths
-                .iter()
-                .any(|rule| target_path.starts_with(&rule.path))
+    ) -> Option<&PathRule> {
+        if !subjects_allow(&self.config.dev_tools, subject, subject_name) {
+            return None;
+        }
+
+        self.config
+            .sensitive_paths
+            .iter()
+            .filter(|rule| target_path.starts_with(&rule.path))
+            .max_by_key(|rule| rule.path.as_os_str().len())
     }
 
-    fn prompt_for_sensitive_access(&self, access: AccessKind) -> Decision {
+    fn prompt_for_sensitive_access(&self, access: AccessKind, target_path: &Path) -> Decision {
         let reason = match access {
             AccessKind::Read => DecisionReason::SensitiveReadByDevTool,
             AccessKind::Write | AccessKind::DestructiveWrite => DecisionReason::SensitiveWrite,
         };
 
-        self.prompt(reason)
+        self.prompt(reason, target_path)
     }
 
-    fn prompt_for_cross_owner_access(&self, access: AccessKind) -> Decision {
+    fn prompt_for_cross_owner_access(&self, access: AccessKind, scope: &Path) -> Decision {
         let reason = match access {
             AccessKind::Read => DecisionReason::CrossOwnerRead,
             AccessKind::Write | AccessKind::DestructiveWrite => DecisionReason::CrossOwnerWrite,
         };
 
-        self.prompt(reason)
+        self.prompt(reason, scope)
     }
 
-    fn prompt(&self, reason: DecisionReason) -> Decision {
+    fn prompt(&self, reason: DecisionReason, scope: &Path) -> Decision {
         Decision::Prompt {
             reason,
             default: Box::new(self.default_decision()),
+            scope: scope.to_path_buf(),
         }
     }
 }

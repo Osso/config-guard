@@ -76,6 +76,46 @@ fn guard_invokes_prompt_command_for_cross_owner_access() {
     );
 }
 
+#[test]
+#[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
+fn guard_reuses_prompt_answer_for_same_process_and_scope() {
+    require_root();
+    let fixture = RootFixture::new("guard_reuses_prompt_answer_for_same_process_and_scope");
+    let mut guard = ConfigGuardProcess::start([
+        "guard",
+        "--path",
+        fixture.watch_root().to_str().unwrap(),
+        "--config",
+        fixture.config_path().to_str().unwrap(),
+        "--prompt-command",
+        fixture.prompt_command_path().to_str().unwrap(),
+        "--timeout-seconds",
+        "1",
+    ]);
+
+    guard.wait_for_line("watching ");
+    let output = run_with_timeout(
+        Command::new("cat")
+            .arg(fixture.probe_path())
+            .arg(fixture.second_probe_path()),
+        TIMEOUT,
+        "cat two protected files under guard",
+    );
+
+    assert!(
+        output.status.success(),
+        "cat should complete via cached prompt answer: {output:?}"
+    );
+    guard.wait_for_line("FORBID audit");
+
+    let prompt_log = fs::read_to_string(fixture.prompt_log_path()).expect("read prompt log");
+    assert_eq!(
+        prompt_log.matches("--subject\ncat\n").count(),
+        1,
+        "same process and scope should prompt once: {prompt_log}"
+    );
+}
+
 fn require_root() {
     let effective_uid = unsafe { libc::geteuid() };
     assert_eq!(
@@ -226,6 +266,7 @@ impl RootFixture {
         let _ = fs::remove_dir_all(&self.root);
         fs::create_dir_all(self.protected_dir()).expect("create protected dir");
         fs::write(self.probe_path(), "probe\n").expect("write probe");
+        fs::write(self.second_probe_path(), "second probe\n").expect("write second probe");
         fs::write(self.config_path(), self.config()).expect("write config");
         fs::write(self.prompt_command_path(), self.prompt_command()).expect("write prompt command");
         make_executable(&self.prompt_command_path());
@@ -241,6 +282,10 @@ impl RootFixture {
 
     fn probe_path(&self) -> PathBuf {
         self.protected_dir().join("probe.txt")
+    }
+
+    fn second_probe_path(&self) -> PathBuf {
+        self.protected_dir().join("second-probe.txt")
     }
 
     fn config_path(&self) -> PathBuf {
