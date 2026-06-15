@@ -1090,6 +1090,11 @@ allowed_subjects = ["sentinel"]
 access = ["read"]
 
 [[shared_paths]]
+path = "/etc/php/php.ini"
+allowed_subjects = ["php"]
+access = ["read"]
+
+[[shared_paths]]
 path = "/etc/resolv.conf"
 allowed_subjects = ["*"]
 access = ["read"]
