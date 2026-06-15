@@ -45,6 +45,14 @@ path = "/home/osso/.config/claude/settings.json"
 allowed_subjects = ["rtk"]
 access = ["read"]
 
+[[shared_paths]]
+path = "/home/osso/.config/claude/archive"
+allowed_subjects = [
+  "claude-grep",
+  "zstd",
+]
+access = ["read"]
+
 [[owned_paths]]
 path = "/home/osso/.local/state/claude"
 owner = "claude"
