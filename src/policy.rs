@@ -61,6 +61,8 @@ pub struct OwnedPath {
 pub struct SharedPath {
     pub path: PathBuf,
     #[serde(default)]
+    pub path_prefix: bool,
+    #[serde(default)]
     pub allowed_subjects: Vec<String>,
     #[serde(default = "all_access_kinds")]
     pub access: Vec<AccessKind>,
@@ -138,7 +140,7 @@ impl Policy {
         access: AccessKind,
     ) -> bool {
         self.config.shared_paths.iter().any(|shared| {
-            target_path.starts_with(&shared.path)
+            shared_path_matches(shared, target_path)
                 && shared.access.contains(&access)
                 && subjects_allow(&shared.allowed_subjects, subject, subject_name)
         })
@@ -236,6 +238,17 @@ fn subject_matches_executable_with_ancestor_prefix(rule: &str, subject: &Process
             .any(|ancestor| ancestor.starts_with(ancestor_prefix))
 }
 
+fn shared_path_matches(shared: &SharedPath, target_path: &Path) -> bool {
+    if shared.path_prefix {
+        return target_path
+            .as_os_str()
+            .as_encoded_bytes()
+            .starts_with(shared.path.as_os_str().as_encoded_bytes());
+    }
+
+    target_path.starts_with(&shared.path)
+}
+
 impl Default for PolicyConfig {
     fn default() -> Self {
         Self {
@@ -310,6 +323,7 @@ fn default_shared_paths() -> Vec<SharedPath> {
     .into_iter()
     .map(|suffix| SharedPath {
         path: home_relative_path(suffix),
+        path_prefix: false,
         allowed_subjects: default_shared_subjects(),
         access: all_access_kinds(),
     })

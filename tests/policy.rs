@@ -243,6 +243,7 @@ fn shared_paths_can_allow_all_subjects() {
     let mut config = PolicyConfig::default();
     config.shared_paths.push(SharedPath {
         path: PathBuf::from("/home/osso/.config/gtk-3.0"),
+        path_prefix: false,
         allowed_subjects: vec!["*".to_string()],
         access: vec![AccessKind::Read, AccessKind::Write],
     });
@@ -262,6 +263,7 @@ fn shared_paths_can_be_read_only() {
     let mut config = PolicyConfig::default();
     config.shared_paths.push(SharedPath {
         path: PathBuf::from("/etc/ca-certificates"),
+        path_prefix: false,
         allowed_subjects: vec!["*".to_string()],
         access: vec![AccessKind::Read],
     });
@@ -311,6 +313,37 @@ fn owned_paths_can_allow_all_subjects() {
     );
 
     assert_eq!(decision, Decision::Allow);
+}
+
+#[test]
+fn shared_paths_can_match_file_prefixes() {
+    let mut config = PolicyConfig::default();
+    config.shared_paths.push(SharedPath {
+        path: PathBuf::from("/etc/resolv.conf."),
+        path_prefix: true,
+        allowed_subjects: vec!["NetworkManager".to_string()],
+        access: vec![AccessKind::Read, AccessKind::Write],
+    });
+    config.owned_paths.push(OwnedPath {
+        path: PathBuf::from("/etc"),
+        owner: "root".to_string(),
+        allowed_subjects: Vec::new(),
+    });
+    let policy = Policy::new(config);
+
+    let temp_write = policy.decide(
+        &subject("NetworkManager"),
+        "/etc/resolv.conf.D9HAR3",
+        AccessKind::Write,
+    );
+    let real_write = policy.decide(
+        &subject("NetworkManager"),
+        "/etc/resolv.conf",
+        AccessKind::Write,
+    );
+
+    assert_eq!(temp_write, Decision::Allow);
+    assert!(matches!(real_write, Decision::Prompt { .. }));
 }
 
 #[test]
