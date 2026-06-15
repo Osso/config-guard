@@ -857,6 +857,14 @@ owner = "trash"
 allowed_subjects = ["gvfsd-trash"]
 
 [[owned_paths]]
+path = "/home/osso/.local/share/uv"
+owner = "uv"
+allowed_subjects = [
+  "python3.12",
+  "uv",
+]
+
+[[owned_paths]]
 path = "/home/osso/.local/share/keyrings"
 owner = "gnome-keyring"
 allowed_subjects = ["gnome-keyring-daemon"]
@@ -994,6 +1002,11 @@ access = ["read"]
 
 [[shared_paths]]
 path = "/etc/pulse/client.conf"
+allowed_subjects = ["*"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/mime.types"
 allowed_subjects = ["*"]
 access = ["read"]
 
