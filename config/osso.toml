@@ -114,6 +114,11 @@ allowed_subjects = [
 ]
 
 [[owned_paths]]
+path = "/home/osso/.local/state/wireplumber"
+owner = "wireplumber"
+allowed_subjects = ["wireplumber"]
+
+[[owned_paths]]
 path = "/home/osso/.config/gh"
 owner = "gh"
 allowed_subjects = ["git"]
