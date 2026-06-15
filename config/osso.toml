@@ -44,6 +44,7 @@ allowed_subjects = [
 path = "/home/osso/.local/share/claude"
 owner = "claude"
 allowed_subjects = [
+  "bash",
   "zsh",
   "exe-prefix:/home/osso/.local/share/claude/versions/",
 ]
