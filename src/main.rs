@@ -25,16 +25,20 @@ struct Args {
 #[derive(Subcommand)]
 enum Command {
     Audit {
-        #[arg(long)]
-        path: PathBuf,
+        #[arg(long = "path", required = true)]
+        paths: Vec<PathBuf>,
+        #[arg(long = "exclude-path")]
+        excluded_paths: Vec<PathBuf>,
         #[arg(long)]
         config: Option<PathBuf>,
         #[arg(long)]
         learn_output: Option<PathBuf>,
     },
     Guard {
-        #[arg(long)]
-        path: PathBuf,
+        #[arg(long = "path", required = true)]
+        paths: Vec<PathBuf>,
+        #[arg(long = "exclude-path")]
+        excluded_paths: Vec<PathBuf>,
         #[arg(long)]
         config: Option<PathBuf>,
         #[arg(long)]
@@ -64,40 +68,83 @@ enum Command {
 
 fn main() -> Result<ExitCode> {
     let args = Args::parse();
+    run_command(args.command)
+}
 
-    match args.command {
-        Command::Audit {
-            path,
-            config,
-            learn_output,
-        } => {
-            run_audit(path, config, learn_output)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        Command::Guard {
-            path,
-            config,
-            prompt_command,
-            timeout_seconds,
-        } => {
-            run_guard(path, config, prompt_command, timeout_seconds)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        Command::Reconcile {
-            config_home,
-            config,
-            apply,
-        } => {
-            run_reconcile(config_home, config, apply)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        Command::TestPrompt {
-            subject_exe,
-            path,
-            reason,
-            default_decision,
-        } => run_test_prompt(subject_exe, path, reason, default_decision),
+fn run_command(command: Command) -> Result<ExitCode> {
+    match command {
+        audit @ Command::Audit { .. } => run_audit_command(audit),
+        guard @ Command::Guard { .. } => run_guard_command(guard),
+        reconcile @ Command::Reconcile { .. } => run_reconcile_command(reconcile),
+        prompt @ Command::TestPrompt { .. } => run_test_prompt_command(prompt),
     }
+}
+
+fn run_audit_command(command: Command) -> Result<ExitCode> {
+    let Command::Audit {
+        paths,
+        excluded_paths,
+        config,
+        learn_output,
+    } = command
+    else {
+        unreachable!("run_audit_command called with non-audit command")
+    };
+
+    run_unit_command(run_audit(paths, excluded_paths, config, learn_output))
+}
+
+fn run_guard_command(command: Command) -> Result<ExitCode> {
+    let Command::Guard {
+        paths,
+        excluded_paths,
+        config,
+        prompt_command,
+        timeout_seconds,
+    } = command
+    else {
+        unreachable!("run_guard_command called with non-guard command")
+    };
+
+    run_unit_command(run_guard(
+        paths,
+        excluded_paths,
+        config,
+        prompt_command,
+        timeout_seconds,
+    ))
+}
+
+fn run_reconcile_command(command: Command) -> Result<ExitCode> {
+    let Command::Reconcile {
+        config_home,
+        config,
+        apply,
+    } = command
+    else {
+        unreachable!("run_reconcile_command called with non-reconcile command")
+    };
+
+    run_unit_command(run_reconcile(config_home, config, apply))
+}
+
+fn run_test_prompt_command(command: Command) -> Result<ExitCode> {
+    let Command::TestPrompt {
+        subject_exe,
+        path,
+        reason,
+        default_decision,
+    } = command
+    else {
+        unreachable!("run_test_prompt_command called with non-test-prompt command")
+    };
+
+    run_test_prompt(subject_exe, path, reason, default_decision)
+}
+
+fn run_unit_command(result: Result<()>) -> Result<ExitCode> {
+    result?;
+    Ok(ExitCode::SUCCESS)
 }
 
 fn run_test_prompt(
@@ -127,15 +174,22 @@ fn run_test_prompt(
     })
 }
 
-fn run_audit(path: PathBuf, config: Option<PathBuf>, learn_output: Option<PathBuf>) -> Result<()> {
-    ensure_path_exists(&path)?;
-    let learner = learn_output.map(|output_path| AuditLearner::new(output_path, audit_home(&path)));
+fn run_audit(
+    paths: Vec<PathBuf>,
+    excluded_paths: Vec<PathBuf>,
+    config: Option<PathBuf>,
+    learn_output: Option<PathBuf>,
+) -> Result<()> {
+    ensure_paths_exist(&paths)?;
+    let home_dir = audit_home(&paths);
+    let learner = learn_output.map(|output_path| AuditLearner::new(output_path, home_dir.clone()));
     let config_path = resolve_config_path(config);
     let policy_config = load_policy_config(config_path)?;
-    let mut policy = StaticPolicy::new(policy_config, audit_home(&path));
+    let mut policy = StaticPolicy::new(policy_config, home_dir);
 
     config_guard::fanotify::run(
-        &path,
+        &paths,
+        &excluded_paths,
         Mode::Audit {
             learner,
             policy: Some(&mut policy),
@@ -143,28 +197,42 @@ fn run_audit(path: PathBuf, config: Option<PathBuf>, learn_output: Option<PathBu
     )
 }
 
-fn audit_home(path: &std::path::Path) -> PathBuf {
-    path.parent()
-        .filter(|_| path.file_name().is_some_and(|name| name == ".config"))
-        .map(PathBuf::from)
+fn audit_home(paths: &[PathBuf]) -> PathBuf {
+    paths
+        .iter()
+        .find_map(|path| {
+            path.parent()
+                .filter(|_| path.file_name().is_some_and(|name| name == ".config"))
+                .map(PathBuf::from)
+        })
         .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("/home/osso"))
 }
 
+fn ensure_paths_exist(paths: &[PathBuf]) -> Result<()> {
+    for path in paths {
+        ensure_path_exists(path)?;
+    }
+
+    Ok(())
+}
+
 fn run_guard(
-    path: PathBuf,
+    paths: Vec<PathBuf>,
+    excluded_paths: Vec<PathBuf>,
     config: Option<PathBuf>,
     prompt_command: Option<PathBuf>,
     timeout_seconds: u64,
 ) -> Result<()> {
-    ensure_path_exists(&path)?;
+    ensure_paths_exist(&paths)?;
     let policy_config = load_policy_config(config)?;
-    let mut policy = StaticPolicy::new(policy_config, audit_home(&path));
+    let mut policy = StaticPolicy::new(policy_config, audit_home(&paths));
     let timeout = Duration::from_secs(timeout_seconds);
     let prompt = build_prompt(prompt_command, timeout);
 
     config_guard::fanotify::run(
-        &path,
+        &paths,
+        &excluded_paths,
         Mode::Guard {
             policy: &mut policy,
             prompt: prompt.as_ref(),

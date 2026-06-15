@@ -7,11 +7,6 @@ fn osso_config_file_parses() {
 }
 
 #[test]
-fn etc_config_file_parses() {
-    parse_etc_config();
-}
-
-#[test]
 fn osso_config_allows_known_owner() {
     let policy = Policy::new(parse_osso_config());
     let subject = subject("kubectl");
@@ -62,10 +57,6 @@ fn osso_config_allows_claude_spawned_bash_for_claude_config() {
 
 fn parse_osso_config() -> PolicyConfig {
     toml::from_str(include_str!("../config/osso.toml")).expect("config/osso.toml should parse")
-}
-
-fn parse_etc_config() -> PolicyConfig {
-    toml::from_str(include_str!("../config/etc.toml")).expect("config/etc.toml should parse")
 }
 
 fn subject(name: &str) -> ProcessSubject {

@@ -62,14 +62,15 @@ impl PromptDecisionCache {
     }
 }
 
-pub fn run(path: &Path, mode: Mode<'_>) -> Result<()> {
+pub fn run(paths: &[PathBuf], excluded_paths: &[PathBuf], mode: Mode<'_>) -> Result<()> {
     let fanotify_fd = create_fanotify_fd()?;
-    let marked_paths = mark_path_tree(fanotify_fd, path)?;
-    eprintln!(
-        "watching {} ({} directories marked)",
-        path.display(),
-        marked_paths
-    );
+    let marked_paths = mark_path_trees(fanotify_fd, paths, excluded_paths)?;
+    let watch_list = paths
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    eprintln!("watching {watch_list} ({marked_paths} directories marked)");
     let mut mode = mode;
 
     loop {
@@ -103,7 +104,21 @@ fn mark_path(fanotify_fd: RawFd, path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn mark_path_tree(fanotify_fd: RawFd, path: &Path) -> Result<usize> {
+fn mark_path_trees(
+    fanotify_fd: RawFd,
+    paths: &[PathBuf],
+    excluded_paths: &[PathBuf],
+) -> Result<usize> {
+    paths
+        .iter()
+        .filter(|path| !is_excluded(path, excluded_paths))
+        .map(|path| mark_path_tree(fanotify_fd, path, excluded_paths))
+        .try_fold(0, |marked_paths, result| {
+            result.map(|path_count| marked_paths + path_count)
+        })
+}
+
+fn mark_path_tree(fanotify_fd: RawFd, path: &Path, excluded_paths: &[PathBuf]) -> Result<usize> {
     if !path.is_dir() {
         mark_path(fanotify_fd, path)?;
         return Ok(1);
@@ -117,7 +132,7 @@ fn mark_path_tree(fanotify_fd: RawFd, path: &Path) -> Result<usize> {
             .with_context(|| format!("marking {}", current_path.display()))?;
         marked_paths += 1;
 
-        for child_path in child_directories(&current_path)? {
+        for child_path in child_directories(&current_path, excluded_paths)? {
             pending_paths.push(child_path);
         }
     }
@@ -125,19 +140,29 @@ fn mark_path_tree(fanotify_fd: RawFd, path: &Path) -> Result<usize> {
     Ok(marked_paths)
 }
 
-fn child_directories(path: &Path) -> Result<Vec<PathBuf>> {
+fn child_directories(path: &Path, excluded_paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
     let mut directories = Vec::new();
 
     for entry in fs::read_dir(path).with_context(|| format!("reading {}", path.display()))? {
         let entry = entry.with_context(|| format!("reading entry under {}", path.display()))?;
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("reading file type for {}", entry.path().display()))?;
+
         let child_path = entry.path();
 
-        if child_path.is_dir() {
+        if file_type.is_dir() && !is_excluded(&child_path, excluded_paths) {
             directories.push(child_path);
         }
     }
 
     Ok(directories)
+}
+
+fn is_excluded(path: &Path, excluded_paths: &[PathBuf]) -> bool {
+    excluded_paths
+        .iter()
+        .any(|excluded_path| path.starts_with(excluded_path))
 }
 
 fn read_events(fanotify_fd: RawFd, mode: &mut Mode<'_>) -> Result<()> {
@@ -480,4 +505,39 @@ pub fn ensure_path_exists(path: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::child_directories;
+    use std::fs;
+    use std::os::unix::fs::symlink;
+
+    #[test]
+    fn child_directories_does_not_follow_symlinked_directories() {
+        let root =
+            std::env::temp_dir().join(format!("config-guard-symlink-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("real")).expect("create real dir");
+        symlink(root.join("real"), root.join("linked")).expect("create symlinked dir");
+
+        let children = child_directories(&root, &[]).expect("read child dirs");
+
+        assert_eq!(children, vec![root.join("real")]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn child_directories_skips_excluded_directories() {
+        let root =
+            std::env::temp_dir().join(format!("config-guard-exclude-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("keep")).expect("create keep dir");
+        fs::create_dir_all(root.join("skip")).expect("create skip dir");
+
+        let children = child_directories(&root, &[root.join("skip")]).expect("read child dirs");
+
+        assert_eq!(children, vec![root.join("keep")]);
+        let _ = fs::remove_dir_all(root);
+    }
 }

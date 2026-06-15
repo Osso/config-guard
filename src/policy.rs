@@ -8,7 +8,8 @@ pub struct ProcessSubject {
     pub ancestors: Vec<PathBuf>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum AccessKind {
     Read,
     Write,
@@ -61,6 +62,8 @@ pub struct SharedPath {
     pub path: PathBuf,
     #[serde(default)]
     pub allowed_subjects: Vec<String>,
+    #[serde(default = "all_access_kinds")]
+    pub access: Vec<AccessKind>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -86,7 +89,7 @@ impl Policy {
         let target_path = target_path.as_ref();
         let subject_name = subject_name(subject);
 
-        if self.shared_path_allows(subject, &subject_name, target_path) {
+        if self.shared_path_allows(subject, &subject_name, target_path, access) {
             return Decision::Allow;
         }
 
@@ -132,9 +135,11 @@ impl Policy {
         subject: &ProcessSubject,
         subject_name: &str,
         target_path: &Path,
+        access: AccessKind,
     ) -> bool {
         self.config.shared_paths.iter().any(|shared| {
             target_path.starts_with(&shared.path)
+                && shared.access.contains(&access)
                 && subjects_allow(&shared.allowed_subjects, subject, subject_name)
         })
     }
@@ -306,8 +311,17 @@ fn default_shared_paths() -> Vec<SharedPath> {
     .map(|suffix| SharedPath {
         path: home_relative_path(suffix),
         allowed_subjects: default_shared_subjects(),
+        access: all_access_kinds(),
     })
     .collect()
+}
+
+fn all_access_kinds() -> Vec<AccessKind> {
+    vec![
+        AccessKind::Read,
+        AccessKind::Write,
+        AccessKind::DestructiveWrite,
+    ]
 }
 
 fn default_sensitive_paths() -> Vec<PathRule> {

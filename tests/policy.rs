@@ -244,6 +244,7 @@ fn shared_paths_can_allow_all_subjects() {
     config.shared_paths.push(SharedPath {
         path: PathBuf::from("/home/osso/.config/gtk-3.0"),
         allowed_subjects: vec!["*".to_string()],
+        access: vec![AccessKind::Read, AccessKind::Write],
     });
     let policy = Policy::new(config);
 
@@ -254,6 +255,43 @@ fn shared_paths_can_allow_all_subjects() {
     );
 
     assert_eq!(decision, Decision::Allow);
+}
+
+#[test]
+fn shared_paths_can_be_read_only() {
+    let mut config = PolicyConfig::default();
+    config.shared_paths.push(SharedPath {
+        path: PathBuf::from("/etc/ca-certificates"),
+        allowed_subjects: vec!["*".to_string()],
+        access: vec![AccessKind::Read],
+    });
+    config.owned_paths.push(OwnedPath {
+        path: PathBuf::from("/etc"),
+        owner: "root".to_string(),
+        allowed_subjects: Vec::new(),
+    });
+    let policy = Policy::new(config);
+
+    let read = policy.decide(
+        &subject("codex"),
+        "/etc/ca-certificates/extracted/tls-ca-bundle.pem",
+        AccessKind::Read,
+    );
+    let write = policy.decide(
+        &subject("codex"),
+        "/etc/ca-certificates/extracted/tls-ca-bundle.pem",
+        AccessKind::Write,
+    );
+
+    assert_eq!(read, Decision::Allow);
+    assert_eq!(
+        write,
+        Decision::Prompt {
+            reason: DecisionReason::CrossOwnerWrite,
+            default: Box::new(Decision::Allow),
+            scope: PathBuf::from("/etc"),
+        }
+    );
 }
 
 #[test]

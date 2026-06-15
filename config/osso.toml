@@ -718,3 +718,294 @@ allowed_subjects = []
 path = "/home/osso/.config/yazi"
 owner = "yazi"
 allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.local"
+owner = "local"
+allowed_subjects = [
+  "bash",
+  "zsh",
+  "fish",
+  "install",
+  "mkdir",
+  "mv",
+  "rm",
+]
+
+[[owned_paths]]
+path = "/home/osso/.local/bin"
+owner = "local-bin"
+allowed_subjects = [
+  "bash",
+  "zsh",
+  "fish",
+  "install",
+  "mkdir",
+  "mv",
+  "rm",
+]
+
+[[owned_paths]]
+path = "/home/osso/.local/share/applications"
+owner = "desktop-applications"
+allowed_subjects = [
+  "update-desktop-database",
+  "xdg-desktop-menu",
+]
+
+[[owned_paths]]
+path = "/home/osso/.local/state/codex-desktop"
+owner = "codex-desktop"
+allowed_subjects = [
+  "codex",
+  "codex-update-manager",
+]
+
+[[owned_paths]]
+path = "/home/osso/.local/state/codex-update-manager"
+owner = "codex-update-manager"
+allowed_subjects = [
+  "codex-update-manager",
+]
+
+[[owned_paths]]
+path = "/etc"
+owner = "root"
+allowed_subjects = [
+  "arch",
+  "authsudo",
+  "chmod",
+  "chown",
+  "cp",
+  "install",
+  "ln",
+  "mv",
+  "pacman",
+  "sudo-edit",
+]
+
+[[shared_paths]]
+path = "/etc/ld.so.cache"
+allowed_subjects = ["*"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/hosts"
+allowed_subjects = ["*"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/fonts"
+allowed_subjects = ["*"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/ca-certificates"
+allowed_subjects = ["*"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/profile"
+allowed_subjects = ["bash", "zsh", "fish", "sh"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/profile.d"
+allowed_subjects = ["bash", "zsh", "fish", "sh"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/zsh"
+allowed_subjects = ["zsh"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/passwd"
+allowed_subjects = ["*"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/group"
+allowed_subjects = ["*"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/nsswitch.conf"
+allowed_subjects = ["*"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/gai.conf"
+allowed_subjects = ["*"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/machine-id"
+allowed_subjects = ["*"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/shadow"
+allowed_subjects = ["sentinel"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/sudoers"
+allowed_subjects = ["sentinel"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/pam.d"
+allowed_subjects = ["sentinel"]
+access = ["read"]
+
+[[owned_paths]]
+path = "/etc/resolv.conf"
+owner = "resolver"
+allowed_subjects = [
+  "NetworkManager",
+  "systemd-resolved",
+  "resolvconf",
+  "warp-svc",
+  "dockerd",
+]
+
+[[owned_paths]]
+path = "/etc/systemd"
+owner = "systemd"
+allowed_subjects = [
+  "systemctl",
+  "systemd",
+  "systemd-analyze",
+  "systemd-sysusers",
+  "systemd-tmpfiles",
+]
+
+[[owned_paths]]
+path = "/etc/authd"
+owner = "authd"
+allowed_subjects = [
+  "authd",
+  "authsudo",
+  "install",
+  "sudo-edit",
+]
+
+[[owned_paths]]
+path = "/etc/config-guard"
+owner = "config-guard"
+allowed_subjects = [
+  "config-guard",
+  "install",
+  "sudo-edit",
+]
+
+[[owned_paths]]
+path = "/etc/ssh"
+owner = "openssh"
+allowed_subjects = [
+  "sshd",
+  "ssh",
+  "ssh-keygen",
+  "sentinel",
+]
+
+[[owned_paths]]
+path = "/etc/NetworkManager"
+owner = "NetworkManager"
+allowed_subjects = [
+  "NetworkManager",
+  "nmcli",
+]
+
+[[owned_paths]]
+path = "/etc/pacman.d"
+owner = "pacman"
+allowed_subjects = [
+  "pacman",
+  "arch",
+  "gpg",
+  "gpg-agent",
+]
+
+[[owned_paths]]
+path = "/etc/mkinitcpio.d"
+owner = "mkinitcpio"
+allowed_subjects = [
+  "mkinitcpio",
+  "pacman",
+  "arch",
+]
+
+[[owned_paths]]
+path = "/etc/ca-certificates"
+owner = "ca-certificates"
+allowed_subjects = [
+  "trust",
+  "update-ca-trust",
+  "pacman",
+  "arch",
+]
+
+[[owned_paths]]
+path = "/var"
+owner = "var"
+allowed_subjects = [
+  "systemd",
+  "systemd-journald",
+  "journald",
+  "pacman",
+  "arch",
+]
+
+[[owned_paths]]
+path = "/var/cache/pacman"
+owner = "pacman-cache"
+allowed_subjects = [
+  "pacman",
+  "arch",
+]
+
+[[owned_paths]]
+path = "/var/lib/pacman"
+owner = "pacman-db"
+allowed_subjects = [
+  "pacman",
+  "arch",
+]
+
+[[owned_paths]]
+path = "/var/lib/ollama"
+owner = "ollama"
+allowed_subjects = [
+  "ollama",
+]
+
+[[owned_paths]]
+path = "/var/lib/upower"
+owner = "upowerd"
+allowed_subjects = [
+  "upowerd",
+]
+
+[[owned_paths]]
+path = "/var/log"
+owner = "logs"
+allowed_subjects = [
+  "systemd-journald",
+  "journald",
+  "logrotate",
+  "journalctl",
+]
+
+[[sensitive_paths]]
+path = "/etc/ssh"
+
+[[sensitive_paths]]
+path = "/etc/authd"
+
+[[sensitive_paths]]
+path = "/etc/config-guard"
+
+[[sensitive_paths]]
+path = "/var/lib"

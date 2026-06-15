@@ -116,6 +116,37 @@ fn guard_reuses_prompt_answer_for_same_process_and_scope() {
     );
 }
 
+#[test]
+#[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
+fn audit_watches_multiple_roots_from_one_process() {
+    require_root();
+    let fixture = RootFixture::new("audit_watches_multiple_roots_from_one_process");
+    let mut guard = ConfigGuardProcess::start([
+        "audit",
+        "--path",
+        fixture.watch_root().to_str().unwrap(),
+        "--path",
+        fixture.second_watch_root().to_str().unwrap(),
+        "--config",
+        fixture.config_path().to_str().unwrap(),
+    ]);
+
+    guard.wait_for_line("watching ");
+    let output = run_with_timeout(
+        Command::new("cat").arg(fixture.other_probe_path()),
+        TIMEOUT,
+        "cat probe from second watch root",
+    );
+
+    assert!(output.status.success(), "cat failed: {output:?}");
+    let forbid = guard.wait_for_line("FORBID audit");
+    assert!(forbid.contains("exe=cat"), "{forbid}");
+    assert!(
+        forbid.contains(&fixture.other_probe_path().display().to_string()),
+        "{forbid}"
+    );
+}
+
 fn require_root() {
     let effective_uid = unsafe { libc::geteuid() };
     assert_eq!(
@@ -265,8 +296,10 @@ impl RootFixture {
     fn reset(&self) {
         let _ = fs::remove_dir_all(&self.root);
         fs::create_dir_all(self.protected_dir()).expect("create protected dir");
+        fs::create_dir_all(self.other_protected_dir()).expect("create other protected dir");
         fs::write(self.probe_path(), "probe\n").expect("write probe");
         fs::write(self.second_probe_path(), "second probe\n").expect("write second probe");
+        fs::write(self.other_probe_path(), "other probe\n").expect("write other probe");
         fs::write(self.config_path(), self.config()).expect("write config");
         fs::write(self.prompt_command_path(), self.prompt_command()).expect("write prompt command");
         make_executable(&self.prompt_command_path());
@@ -276,8 +309,16 @@ impl RootFixture {
         self.root.join("watch")
     }
 
+    fn second_watch_root(&self) -> PathBuf {
+        self.root.join("second-watch")
+    }
+
     fn protected_dir(&self) -> PathBuf {
         self.watch_root().join("protected")
+    }
+
+    fn other_protected_dir(&self) -> PathBuf {
+        self.second_watch_root().join("protected")
     }
 
     fn probe_path(&self) -> PathBuf {
@@ -286,6 +327,10 @@ impl RootFixture {
 
     fn second_probe_path(&self) -> PathBuf {
         self.protected_dir().join("second-probe.txt")
+    }
+
+    fn other_probe_path(&self) -> PathBuf {
+        self.other_protected_dir().join("probe.txt")
     }
 
     fn config_path(&self) -> PathBuf {
@@ -302,8 +347,9 @@ impl RootFixture {
 
     fn config(&self) -> String {
         format!(
-            "fail_open = true\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"not-cat\"\nallowed_subjects = []\n",
-            self.protected_dir().display()
+            "fail_open = true\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"not-cat\"\nallowed_subjects = []\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"not-cat\"\nallowed_subjects = []\n",
+            self.protected_dir().display(),
+            self.other_protected_dir().display()
         )
     }
 
