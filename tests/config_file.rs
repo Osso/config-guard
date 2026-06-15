@@ -55,6 +55,26 @@ fn osso_config_allows_claude_spawned_bash_for_claude_config() {
     assert_eq!(decision, Decision::Allow);
 }
 
+#[test]
+fn osso_config_allows_claude_spawned_snapshot_helpers() {
+    let policy = Policy::new(parse_osso_config());
+    let snapshot_path =
+        "/home/osso/.config/claude/shell-snapshots/snapshot-bash-1781545515454-oh36tk.sh";
+
+    for helper in ["bash", "cat", "head"] {
+        let subject =
+            subject_with_ancestor(helper, "/home/osso/.local/share/claude/versions/2.1.177");
+
+        let decision = policy.decide(
+            &subject,
+            snapshot_path,
+            config_guard::policy::AccessKind::Write,
+        );
+
+        assert_eq!(decision, Decision::Allow);
+    }
+}
+
 fn parse_osso_config() -> PolicyConfig {
     toml::from_str(include_str!("../config/osso.toml")).expect("config/osso.toml should parse")
 }

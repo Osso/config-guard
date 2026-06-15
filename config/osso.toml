@@ -29,6 +29,15 @@ allowed_subjects = [
   "exe-with-ancestor-prefix:/usr/bin/bash:/home/osso/.local/share/claude/versions/",
 ]
 
+[[owned_paths]]
+path = "/home/osso/.config/claude/shell-snapshots"
+owner = "claude-shell-snapshots"
+allowed_subjects = [
+  "exe-with-ancestor-prefix:/usr/bin/bash:/home/osso/.local/share/claude/versions/",
+  "exe-with-ancestor-prefix:/usr/bin/cat:/home/osso/.local/share/claude/versions/",
+  "exe-with-ancestor-prefix:/usr/bin/head:/home/osso/.local/share/claude/versions/",
+]
+
 [[shared_paths]]
 path = "/home/osso/.config/claude/settings.json"
 allowed_subjects = ["rtk"]
