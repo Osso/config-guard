@@ -95,6 +95,19 @@ allowed_subjects = [
   "firefox-profile-backup",
 ]
 
+[[shared_paths]]
+path = "/home/osso/.config/firefox/firefox-mpris"
+allowed_subjects = ["quickshell"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/home/osso/.config/claude/chrome/chrome-native-host"
+allowed_subjects = [
+  "bash",
+  "vivaldi-bin",
+]
+access = ["read"]
+
 [[owned_paths]]
 path = "/home/osso/.local/state/firefox"
 owner = "firefox"
@@ -818,6 +831,11 @@ allowed_subjects = [
 ]
 
 [[owned_paths]]
+path = "/home/osso/.local/share/.vivaldi_reporting_data"
+owner = "vivaldi"
+allowed_subjects = ["vivaldi-bin"]
+
+[[owned_paths]]
 path = "/home/osso/.local/share/keyrings"
 owner = "gnome-keyring"
 allowed_subjects = ["gnome-keyring-daemon"]
@@ -930,6 +948,11 @@ access = ["read"]
 
 [[shared_paths]]
 path = "/etc/services"
+allowed_subjects = ["*"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/pulse/client.conf"
 allowed_subjects = ["*"]
 access = ["read"]
 
