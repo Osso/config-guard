@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use authd_protocol::collect_wayland_env;
 use clap::{Parser, Subcommand};
 use config_guard::fanotify::{AccessPolicy, Mode, ensure_path_exists};
 use config_guard::learning::{
@@ -9,7 +10,6 @@ use config_guard::policy::{
 };
 use config_guard::prompt::{AuthdPrompt, Prompt, PromptRequest};
 use config_guard::reconcile::{ActionKind, ReconcileOptions, plan_reconcile};
-use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -116,7 +116,7 @@ fn run_test_prompt(
         target_path: &path,
         reason,
         default_decision,
-        env: HashMap::new(),
+        env: collect_wayland_env(),
     };
     let decision = AuthdPrompt::new().ask(&request)?;
 

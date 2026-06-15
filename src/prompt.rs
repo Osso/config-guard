@@ -68,6 +68,16 @@ impl Prompt for AuthdPrompt {
             env: request.env.clone(),
             password: String::new(),
             confirm_only: true,
+            prompt_title: Some("Config access request".to_string()),
+            prompt_message: Some(format!(
+                "Allow {} to access this config file?",
+                display_subject(request.subject)
+            )),
+            prompt_detail: Some(format!(
+                "{:?}\n{}",
+                request.reason,
+                request.target_path.display()
+            )),
         };
 
         match IpcClient::call(SOCKET_PATH, &auth_request) {
