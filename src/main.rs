@@ -1,13 +1,18 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use config_guard::fanotify::{AccessPolicy, Mode, ensure_path_exists};
 use config_guard::learning::{
     AuditLearner, PathAlias, config_root_for_home_or_alias, config_symlink_aliases,
 };
-use config_guard::policy::{AccessKind, Decision, Policy, PolicyConfig, ProcessSubject};
+use config_guard::policy::{
+    AccessKind, Decision, DecisionReason, Policy, PolicyConfig, ProcessSubject,
+};
+use config_guard::prompt::{AuthdPrompt, Prompt, PromptRequest};
 use config_guard::reconcile::{ActionKind, ReconcileOptions, plan_reconcile};
+use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::time::Duration;
 
 #[derive(Parser)]
@@ -45,9 +50,19 @@ enum Command {
         #[arg(long)]
         apply: bool,
     },
+    TestPrompt {
+        #[arg(long, default_value = "/home/osso/.local/bin/config-guard")]
+        subject_exe: PathBuf,
+        #[arg(long)]
+        path: PathBuf,
+        #[arg(long, value_parser = parse_decision_reason, default_value = "CrossOwnerRead")]
+        reason: DecisionReason,
+        #[arg(long, value_parser = parse_decision, default_value = "Allow")]
+        default_decision: Decision,
+    },
 }
 
-fn main() -> Result<()> {
+fn main() -> Result<ExitCode> {
     let args = Args::parse();
 
     match args.command {
@@ -55,19 +70,61 @@ fn main() -> Result<()> {
             path,
             config,
             learn_output,
-        } => run_audit(path, config, learn_output),
+        } => {
+            run_audit(path, config, learn_output)?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Guard {
             path,
             config,
             prompt_command,
             timeout_seconds,
-        } => run_guard(path, config, prompt_command, timeout_seconds),
+        } => {
+            run_guard(path, config, prompt_command, timeout_seconds)?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Reconcile {
             config_home,
             config,
             apply,
-        } => run_reconcile(config_home, config, apply),
+        } => {
+            run_reconcile(config_home, config, apply)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::TestPrompt {
+            subject_exe,
+            path,
+            reason,
+            default_decision,
+        } => run_test_prompt(subject_exe, path, reason, default_decision),
     }
+}
+
+fn run_test_prompt(
+    subject_exe: PathBuf,
+    path: PathBuf,
+    reason: DecisionReason,
+    default_decision: Decision,
+) -> Result<ExitCode> {
+    let subject = ProcessSubject {
+        executable: subject_exe,
+        command: vec!["config-guard".to_string(), "test-prompt".to_string()],
+        ancestors: Vec::new(),
+    };
+    let request = PromptRequest {
+        subject: &subject,
+        target_path: &path,
+        reason,
+        default_decision,
+        env: HashMap::new(),
+    };
+    let decision = AuthdPrompt::new().ask(&request)?;
+
+    println!("decision={decision:?}");
+    Ok(match decision {
+        Decision::Allow => ExitCode::SUCCESS,
+        Decision::Deny | Decision::Prompt { .. } => ExitCode::from(1),
+    })
 }
 
 fn run_audit(path: PathBuf, config: Option<PathBuf>, learn_output: Option<PathBuf>) -> Result<()> {
@@ -243,6 +300,24 @@ fn config_home() -> Option<PathBuf> {
     std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+}
+
+fn parse_decision_reason(value: &str) -> Result<DecisionReason> {
+    match value {
+        "CrossOwnerRead" => Ok(DecisionReason::CrossOwnerRead),
+        "CrossOwnerWrite" => Ok(DecisionReason::CrossOwnerWrite),
+        "SensitiveReadByDevTool" => Ok(DecisionReason::SensitiveReadByDevTool),
+        "SensitiveWrite" => Ok(DecisionReason::SensitiveWrite),
+        _ => bail!("unknown decision reason {value}"),
+    }
+}
+
+fn parse_decision(value: &str) -> Result<Decision> {
+    match value {
+        "Allow" => Ok(Decision::Allow),
+        "Deny" => Ok(Decision::Deny),
+        _ => bail!("unknown decision {value}; expected Allow or Deny"),
+    }
 }
 
 #[cfg(test)]

@@ -8,6 +8,6 @@ anyhow = "1.0"
 authd-protocol = { path = "../authd/protocol" }
 clap = { version = "4.5", features = ["derive"] }
 libc = "0.2"
-peercred-ipc = { path = "../../lib/peercred-ipc" }
+peercred-ipc = { git = "https://github.com/Osso/peercred-ipc", rev = "7ee9ae26aed0313cd793ddfc51e0996cf15038e9" }
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
