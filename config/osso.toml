@@ -1053,6 +1053,11 @@ allowed_subjects = [
 ]
 
 [[owned_paths]]
+path = "/etc/nix"
+owner = "nix"
+allowed_subjects = ["nix"]
+
+[[owned_paths]]
 path = "/etc/ssh"
 owner = "openssh"
 allowed_subjects = [
