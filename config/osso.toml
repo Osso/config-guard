@@ -41,6 +41,13 @@ allowed_subjects = [
 ]
 
 [[owned_paths]]
+path = "/home/osso/.local/share/claude"
+owner = "claude"
+allowed_subjects = [
+  "exe-prefix:/home/osso/.local/share/claude/versions/",
+]
+
+[[owned_paths]]
 path = "/home/osso/.config/codex"
 owner = "codex"
 allowed_subjects = []
