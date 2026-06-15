@@ -51,6 +51,29 @@ fn claude_versioned_binary_requires_explicit_prefix_allow() {
 }
 
 #[test]
+fn explicit_owner_allow_takes_precedence_over_sensitive_dev_tool_prompt() {
+    let mut config = PolicyConfig::default();
+    config.dev_tools = vec!["exe-prefix:/home/osso/.local/share/claude/versions/".to_string()];
+    config.sensitive_paths.push(config_guard::policy::PathRule {
+        path: PathBuf::from("/home/osso/.config/claude"),
+    });
+    config.owned_paths.push(OwnedPath {
+        path: PathBuf::from("/home/osso/.config/claude"),
+        owner: "claude".to_string(),
+        allowed_subjects: vec!["exe-prefix:/home/osso/.local/share/claude/versions/".to_string()],
+    });
+    let policy = Policy::new(config);
+
+    let decision = policy.decide(
+        &subject_executable("/home/osso/.local/share/claude/versions/2.1.177"),
+        "/home/osso/.config/claude/commands/sentry-fix.md",
+        AccessKind::Read,
+    );
+
+    assert_eq!(decision, Decision::Allow);
+}
+
+#[test]
 fn claude_versioned_binary_does_not_implicitly_match_claude_owner() {
     let mut config = PolicyConfig::default();
     config.owned_paths.push(OwnedPath {

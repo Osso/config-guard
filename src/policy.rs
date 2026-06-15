@@ -84,16 +84,20 @@ impl Policy {
         let target_path = target_path.as_ref();
         let subject_name = subject_name(subject);
 
-        if self.is_sensitive_dev_tool_access(subject, &subject_name, target_path) {
-            return self.prompt_for_sensitive_access(access);
-        }
-
         if self.shared_path_allows(subject, &subject_name, target_path) {
             return Decision::Allow;
         }
 
-        match self.owner_for(target_path) {
-            Some(owner) if owner.allows(subject, &subject_name) => Decision::Allow,
+        let owner = self.owner_for(target_path);
+        if owner.is_some_and(|owner| owner.allows(subject, &subject_name)) {
+            return Decision::Allow;
+        }
+
+        if self.is_sensitive_dev_tool_access(subject, &subject_name, target_path) {
+            return self.prompt_for_sensitive_access(access);
+        }
+
+        match owner {
             Some(_) => self.prompt_for_cross_owner_access(access),
             None => Decision::Allow,
         }
