@@ -44,6 +44,7 @@ allowed_subjects = [
 path = "/home/osso/.local/share/claude"
 owner = "claude"
 allowed_subjects = [
+  "zsh",
   "exe-prefix:/home/osso/.local/share/claude/versions/",
 ]
 
@@ -958,6 +959,11 @@ allowed_subjects = ["*"]
 access = ["read"]
 
 [[shared_paths]]
+path = "/etc/resolv.conf"
+allowed_subjects = ["warp-svc"]
+access = ["write"]
+
+[[shared_paths]]
 path = "/etc/udev/udev.conf"
 allowed_subjects = ["*"]
 access = ["read"]
@@ -985,6 +991,11 @@ allowed_subjects = [
 ]
 access = ["read"]
 
+[[shared_paths]]
+path = "/etc/modprobe.d"
+allowed_subjects = ["kmod"]
+access = ["read"]
+
 [[owned_paths]]
 path = "/etc/systemd"
 owner = "systemd"
@@ -992,6 +1003,7 @@ allowed_subjects = [
   "systemctl",
   "systemd",
   "systemd-analyze",
+  "systemd-resolved",
   "systemd-sysusers",
   "systemd-tmpfiles",
 ]
@@ -1040,6 +1052,16 @@ allowed_subjects = [
   "NetworkManager",
   "nmcli",
 ]
+
+[[owned_paths]]
+path = "/var/lib/cloudflare-warp"
+owner = "cloudflare-warp"
+allowed_subjects = ["warp-svc"]
+
+[[owned_paths]]
+path = "/var/log/cloudflare-warp"
+owner = "cloudflare-warp"
+allowed_subjects = ["warp-svc"]
 
 [[owned_paths]]
 path = "/etc/pacman.d"
