@@ -860,6 +860,11 @@ owner = "vivaldi"
 allowed_subjects = ["vivaldi-bin"]
 
 [[owned_paths]]
+path = "/home/osso/.local/share/Enpass"
+owner = "Enpass"
+allowed_subjects = ["Enpass"]
+
+[[owned_paths]]
 path = "/home/osso/.local/share/Trash"
 owner = "trash"
 allowed_subjects = ["gvfsd-trash"]
@@ -1044,6 +1049,13 @@ allowed_subjects = ["*"]
 access = ["read"]
 
 [[shared_paths]]
+path = "/etc/shells"
+allowed_subjects = [
+  "*",
+]
+access = ["read"]
+
+[[shared_paths]]
 path = "/etc/locale.conf"
 allowed_subjects = ["systemd"]
 access = ["read"]
@@ -1084,7 +1096,10 @@ access = ["read"]
 
 [[shared_paths]]
 path = "/etc/shadow"
-allowed_subjects = ["sentinel"]
+allowed_subjects = [
+  "accounts-daemon",
+  "sentinel",
+]
 access = ["read"]
 
 [[shared_paths]]
@@ -1101,6 +1116,11 @@ access = ["read"]
 path = "/etc/php/php.ini"
 allowed_subjects = ["php"]
 access = ["read"]
+
+[[shared_paths]]
+path = "/etc/Enpass"
+allowed_subjects = ["Enpass"]
+access = ["read", "write"]
 
 [[shared_paths]]
 path = "/etc/resolv.conf"
@@ -1177,8 +1197,28 @@ allowed_subjects = [
 access = ["read"]
 
 [[shared_paths]]
+path = "/var/log/wtmp"
+allowed_subjects = ["accounts-daemon"]
+access = ["read"]
+
+[[shared_paths]]
 path = "/etc/modprobe.d"
 allowed_subjects = ["kmod"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/systemd"
+allowed_subjects = ["cp"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/authd"
+allowed_subjects = ["cp"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/config-guard"
+allowed_subjects = ["cp"]
 access = ["read"]
 
 [[owned_paths]]
