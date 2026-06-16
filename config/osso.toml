@@ -1206,21 +1206,6 @@ path = "/etc/modprobe.d"
 allowed_subjects = ["kmod"]
 access = ["read"]
 
-[[shared_paths]]
-path = "/etc/systemd"
-allowed_subjects = ["cp"]
-access = ["read"]
-
-[[shared_paths]]
-path = "/etc/authd"
-allowed_subjects = ["cp"]
-access = ["read"]
-
-[[shared_paths]]
-path = "/etc/config-guard"
-allowed_subjects = ["cp"]
-access = ["read"]
-
 [[owned_paths]]
 path = "/etc/systemd"
 owner = "systemd"
