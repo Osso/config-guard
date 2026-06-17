@@ -75,6 +75,25 @@ fn osso_config_allows_claude_spawned_snapshot_helpers() {
     }
 }
 
+#[test]
+fn osso_config_allows_codex_desktop_electron_for_codex_state() {
+    let policy = Policy::new(parse_osso_config());
+    let subject = ProcessSubject {
+        executable: PathBuf::from("/opt/codex-desktop/electron"),
+        command: vec!["/opt/codex-desktop/electron".to_string()],
+        ancestors: Vec::new(),
+    };
+
+    for path in [
+        "/home/osso/.config/Codex/Cookies-journal",
+        "/home/osso/.local/state/codex-update-manager/state.json",
+    ] {
+        let decision = policy.decide(&subject, path, config_guard::policy::AccessKind::Read);
+
+        assert_eq!(decision, Decision::Allow);
+    }
+}
+
 fn parse_osso_config() -> PolicyConfig {
     toml::from_str(include_str!("../config/osso.toml")).expect("config/osso.toml should parse")
 }
