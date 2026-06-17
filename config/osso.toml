@@ -1346,6 +1346,7 @@ allowed_subjects = [
 path = "/var/lib/ollama"
 owner = "ollama"
 allowed_subjects = [
+  "llama-server",
   "ollama",
 ]
 
