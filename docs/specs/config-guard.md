@@ -31,7 +31,7 @@ Audit and guard runtime:
 - [x] Walk watched directory trees without following symlinked directories.
 - [x] Skip excluded directories when marking watched trees.
 - [ ] Keep long-running audit sampling quiet enough for normal journald review: repeated log lines should indicate real repeated policy decisions, not sampler churn.
-- [ ] Keep the systemd unit in audit mode by default unless guard enforcement is intentionally enabled.
+- [x] Let the systemd unit run guard mode when guard enforcement is intentionally enabled after audit burn-in.
 
 Process identity:
 
@@ -97,7 +97,7 @@ CLI and deployment:
 - `src/reconcile.rs` - config-home inventory, association/archive planning, and apply-mode config/archive updates.
 - `src/lib.rs` - public module exports for integration tests.
 - `config/osso.toml` - local policy used by the deployed audit service.
-- `config/config-guard.service` - systemd unit for the default local audit sampler.
+- `config/config-guard.service` - systemd unit for the local guard service.
 - `deploy.sh` - release build and install path for the binary, policy, and service file.
 - `run-tests.sh` - project verification script.
 
@@ -122,4 +122,4 @@ CLI and deployment:
 - Kernel fanotify semantics beyond the event types Config Guard consumes.
 - Prompt UI design beyond the request/decision contract exposed through `prompt.rs`.
 - Full host policy for machines other than the local `osso` profile in `config/osso.toml`.
-- Enabling guard enforcement by default; the current deployed unit is an audit sampler.
+- Boot-enabling the guard service; local guard mode is active, but service enablement remains an operational decision.
