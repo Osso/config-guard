@@ -39,7 +39,7 @@ impl ProcessIdentity {
 
 pub fn inspect_process(pid: i32) -> Result<ProcessIdentity> {
     let proc_dir = PathBuf::from("/proc").join(pid.to_string());
-    let executable = fs::read_link(proc_dir.join("exe")).ok();
+    let executable = read_exe_link(&proc_dir.join("exe"));
     let cwd = fs::read_link(proc_dir.join("cwd")).ok();
     let command = read_command(&proc_dir)?;
     let start_time_ticks = read_start_time_ticks(proc_dir.join("stat"))?;
@@ -53,6 +53,26 @@ pub fn inspect_process(pid: i32) -> Result<ProcessIdentity> {
         start_time_ticks,
         ancestors,
     })
+}
+
+/// Read a `/proc/<pid>/exe` link, trimming the kernel's `" (deleted)"` marker.
+/// The kernel appends that suffix verbatim when the backing binary was replaced
+/// (e.g. an in-place package upgrade) while the process keeps running; the
+/// recorded path is otherwise the original launch path. Without trimming, a
+/// long-running process whose binary was upgraded would present a subject like
+/// `".../firefox (deleted)"` and fail to match its own owner rule.
+fn read_exe_link(link: &Path) -> Option<PathBuf> {
+    fs::read_link(link).ok().map(strip_deleted_suffix)
+}
+
+fn strip_deleted_suffix(path: PathBuf) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+
+    const DELETED_SUFFIX: &[u8] = b" (deleted)";
+    match path.as_os_str().as_bytes().strip_suffix(DELETED_SUFFIX) {
+        Some(trimmed) => PathBuf::from(std::ffi::OsStr::from_bytes(trimmed)),
+        None => path,
+    }
 }
 
 pub fn read_wayland_env(pid: i32) -> HashMap<String, String> {
@@ -168,11 +188,42 @@ fn read_ancestor_executables(pid: i32) -> Vec<PathBuf> {
         }
 
         let parent_proc_dir = PathBuf::from("/proc").join(parent_pid.to_string());
-        if let Ok(executable) = fs::read_link(parent_proc_dir.join("exe")) {
+        if let Some(executable) = read_exe_link(&parent_proc_dir.join("exe")) {
             ancestors.push(executable);
         }
         current_pid = parent_pid;
     }
 
     ancestors
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_deleted_suffix;
+    use std::path::PathBuf;
+
+    #[test]
+    fn trims_kernel_deleted_marker() {
+        assert_eq!(
+            strip_deleted_suffix(PathBuf::from("/usr/lib/firefox/firefox (deleted)")),
+            PathBuf::from("/usr/lib/firefox/firefox")
+        );
+    }
+
+    #[test]
+    fn leaves_normal_paths_untouched() {
+        assert_eq!(
+            strip_deleted_suffix(PathBuf::from("/usr/bin/arch")),
+            PathBuf::from("/usr/bin/arch")
+        );
+    }
+
+    #[test]
+    fn only_trims_a_trailing_marker() {
+        // A real path component that merely contains the word must survive.
+        assert_eq!(
+            strip_deleted_suffix(PathBuf::from("/opt/my (deleted) tool/bin")),
+            PathBuf::from("/opt/my (deleted) tool/bin")
+        );
+    }
 }
