@@ -1132,6 +1132,12 @@ access = ["read"]
 
 [[shared_paths]]
 path = "/etc/resolv.conf"
+path_prefix = true
+allowed_subjects = ["firefox"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/resolv.conf"
 allowed_subjects = ["warp-svc"]
 access = ["write"]
 
@@ -1207,6 +1213,14 @@ access = ["read"]
 [[shared_paths]]
 path = "/etc/modprobe.d"
 allowed_subjects = ["kmod"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/systemd/sleep.conf"
+allowed_subjects = [
+  "systemd-logind",
+  "systemd-sleep",
+]
 access = ["read"]
 
 [[owned_paths]]

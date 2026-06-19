@@ -94,6 +94,34 @@ fn osso_config_allows_codex_desktop_electron_for_codex_state() {
     }
 }
 
+#[test]
+fn osso_config_allows_systemd_sleep_config_readers() {
+    let policy = Policy::new(parse_osso_config());
+
+    for reader in ["systemd-logind", "systemd-sleep"] {
+        let decision = policy.decide(
+            &subject(reader),
+            "/etc/systemd/sleep.conf",
+            config_guard::policy::AccessKind::Read,
+        );
+
+        assert_eq!(decision, Decision::Allow);
+    }
+}
+
+#[test]
+fn osso_config_allows_firefox_resolver_reads_after_replacement() {
+    let policy = Policy::new(parse_osso_config());
+
+    let decision = policy.decide(
+        &subject("firefox"),
+        "/etc/resolv.conf (deleted)",
+        config_guard::policy::AccessKind::Read,
+    );
+
+    assert_eq!(decision, Decision::Allow);
+}
+
 fn parse_osso_config() -> PolicyConfig {
     toml::from_str(include_str!("../config/osso.toml")).expect("config/osso.toml should parse")
 }
