@@ -45,7 +45,6 @@ pub struct PromptDecisionCache {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct PromptDecisionKey {
-    pid: i32,
     executable: Option<PathBuf>,
     access: AccessKind,
     reason: DecisionReason,
@@ -58,6 +57,10 @@ impl PromptDecisionCache {
     }
 
     fn insert(&mut self, key: PromptDecisionKey, decision: Decision) {
+        if !matches!(decision, Decision::Allow) {
+            return;
+        }
+
         self.decisions.insert(key, decision);
     }
 }
@@ -310,7 +313,7 @@ fn decide_guard_event(
     resolve_policy_decision(
         prompt,
         prompt_cache,
-        PromptDecisionKey::new(pid, process.executable.clone(), access, &policy_decision),
+        PromptDecisionKey::new(process.executable.clone(), access, &policy_decision),
         &subject,
         target_path,
         read_wayland_env(pid),
@@ -378,7 +381,7 @@ fn resolve_policy_decision(
         return Ok(decision);
     };
 
-    if let Some(decision) = prompt_key.as_ref().and_then(|key| prompt_cache.get(key)) {
+    if let Some(decision) = cached_prompt_decision(prompt_cache, prompt_key.as_ref()) {
         return Ok(decision);
     }
 
@@ -389,11 +392,7 @@ fn resolve_policy_decision(
     // apply the configured default instead. The event is already audit-logged
     // by the caller, so this stays visible without prompting.
     if !has_graphical_session(&env) {
-        let default_decision = *default;
-        if let Some(key) = prompt_key {
-            prompt_cache.insert(key, default_decision.clone());
-        }
-        return Ok(default_decision);
+        return Ok(apply_default_decision(prompt_cache, prompt_key, *default));
     }
 
     let default_decision = *default;
@@ -407,10 +406,7 @@ fn resolve_policy_decision(
 
     match prompt.ask(&request) {
         Ok(decision) => {
-            if let Some(key) = prompt_key {
-                prompt_cache.insert(key, decision.clone());
-            }
-
+            cache_prompt_decision(prompt_cache, prompt_key, &decision);
             Ok(decision)
         }
         Err(error) => Ok(prompt_failure_decision(
@@ -423,19 +419,39 @@ fn resolve_policy_decision(
     }
 }
 
+fn apply_default_decision(
+    prompt_cache: &mut PromptDecisionCache,
+    prompt_key: Option<PromptDecisionKey>,
+    default_decision: Decision,
+) -> Decision {
+    cache_prompt_decision(prompt_cache, prompt_key, &default_decision);
+    default_decision
+}
+
+fn cached_prompt_decision(
+    prompt_cache: &PromptDecisionCache,
+    prompt_key: Option<&PromptDecisionKey>,
+) -> Option<Decision> {
+    prompt_key.and_then(|key| prompt_cache.get(key))
+}
+
+fn cache_prompt_decision(
+    prompt_cache: &mut PromptDecisionCache,
+    prompt_key: Option<PromptDecisionKey>,
+    decision: &Decision,
+) {
+    if let Some(key) = prompt_key {
+        prompt_cache.insert(key, decision.clone());
+    }
+}
+
 impl PromptDecisionKey {
-    fn new(
-        pid: i32,
-        executable: Option<PathBuf>,
-        access: AccessKind,
-        decision: &Decision,
-    ) -> Option<Self> {
+    fn new(executable: Option<PathBuf>, access: AccessKind, decision: &Decision) -> Option<Self> {
         let Decision::Prompt { reason, scope, .. } = decision else {
             return None;
         };
 
         Some(Self {
-            pid,
             executable,
             access,
             reason: *reason,
@@ -530,6 +546,7 @@ mod tests {
     };
     use crate::policy::{Decision, DecisionReason, ProcessSubject};
     use crate::prompt::{Prompt, PromptRequest};
+    use std::cell::Cell;
     use std::collections::HashMap;
     use std::fs;
     use std::os::unix::fs::symlink;
@@ -545,12 +562,76 @@ mod tests {
         }
     }
 
+    struct CountingPrompt {
+        decision: Decision,
+        calls: Cell<usize>,
+    }
+
+    impl CountingPrompt {
+        fn new(decision: Decision) -> Self {
+            Self {
+                decision,
+                calls: Cell::new(0),
+            }
+        }
+    }
+
+    impl Prompt for CountingPrompt {
+        fn ask(&self, _request: &PromptRequest<'_>) -> anyhow::Result<Decision> {
+            self.calls.set(self.calls.get() + 1);
+            Ok(self.decision.clone())
+        }
+    }
+
     fn system_daemon_subject() -> ProcessSubject {
         ProcessSubject {
             executable: PathBuf::from("/usr/bin/agetty"),
             command: vec!["agetty".to_string()],
             ancestors: Vec::new(),
         }
+    }
+
+    fn cat_subject() -> ProcessSubject {
+        ProcessSubject {
+            executable: PathBuf::from("/usr/bin/cat"),
+            command: vec!["cat".to_string()],
+            ancestors: Vec::new(),
+        }
+    }
+
+    fn prompt_decision(scope: &str) -> Decision {
+        Decision::Prompt {
+            reason: DecisionReason::CrossOwnerRead,
+            default: Box::new(Decision::Allow),
+            scope: PathBuf::from(scope),
+        }
+    }
+
+    fn graphical_env() -> HashMap<String, String> {
+        HashMap::from([("WAYLAND_DISPLAY".to_string(), "wayland-1".to_string())])
+    }
+
+    fn resolve_cat_prompt(
+        prompt: &dyn Prompt,
+        cache: &mut PromptDecisionCache,
+        subject: &ProcessSubject,
+        target_path: &str,
+    ) -> Decision {
+        let policy_decision = prompt_decision("/etc/authd");
+        resolve_policy_decision(
+            prompt,
+            cache,
+            super::PromptDecisionKey::new(
+                Some(subject.executable.clone()),
+                crate::policy::AccessKind::Read,
+                &policy_decision,
+            ),
+            subject,
+            Path::new(target_path),
+            graphical_env(),
+            policy_decision,
+        )
+        .expect("resolve decision")
     }
 
     #[test]
@@ -573,9 +654,7 @@ mod tests {
             default: Box::new(Decision::Allow),
             scope: PathBuf::from("/etc"),
         };
-        let mut cache = PromptDecisionCache {
-            decisions: HashMap::new(),
-        };
+        let mut cache = PromptDecisionCache::default();
 
         // Empty env => system daemon with no Wayland session. PanicPrompt would
         // panic if the dialog were invoked.
@@ -591,6 +670,54 @@ mod tests {
         .expect("resolve decision");
 
         assert_eq!(resolved, Decision::Allow);
+    }
+
+    #[test]
+    fn resolve_reuses_approved_binary_for_same_scope() {
+        let subject = cat_subject();
+        let prompt = CountingPrompt::new(Decision::Allow);
+        let mut cache = PromptDecisionCache::default();
+
+        let first = resolve_cat_prompt(
+            &prompt,
+            &mut cache,
+            &subject,
+            "/etc/authd/policies.d/wheel.toml",
+        );
+        let second = resolve_cat_prompt(
+            &prompt,
+            &mut cache,
+            &subject,
+            "/etc/authd/policies.d/claude.toml",
+        );
+
+        assert_eq!(first, Decision::Allow);
+        assert_eq!(second, Decision::Allow);
+        assert_eq!(prompt.calls.get(), 1);
+    }
+
+    #[test]
+    fn resolve_does_not_cache_denials_for_binary() {
+        let subject = cat_subject();
+        let prompt = CountingPrompt::new(Decision::Deny);
+        let mut cache = PromptDecisionCache::default();
+
+        let first = resolve_cat_prompt(
+            &prompt,
+            &mut cache,
+            &subject,
+            "/etc/authd/policies.d/wheel.toml",
+        );
+        let second = resolve_cat_prompt(
+            &prompt,
+            &mut cache,
+            &subject,
+            "/etc/authd/policies.d/claude.toml",
+        );
+
+        assert_eq!(first, Decision::Deny);
+        assert_eq!(second, Decision::Deny);
+        assert_eq!(prompt.calls.get(), 2);
     }
 
     #[test]

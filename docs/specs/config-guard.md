@@ -26,7 +26,8 @@ Audit and guard runtime:
 
 - [x] In audit mode, log policy violations as `FORBID audit` lines for cross-owner access without denying the operation.
 - [x] In guard mode, invoke the configured prompt command for cross-owner access.
-- [x] Reuse a prompt answer for the same process, access kind, reason, and policy scope.
+- [x] Reuse an approved prompt answer for the same executable, access kind, reason, and policy scope.
+- [x] Do not cache explicit prompt denials as durable executable approvals.
 - [x] Watch multiple roots from one process.
 - [x] Walk watched directory trees without following symlinked directories.
 - [x] Skip excluded directories when marking watched trees.
