@@ -351,6 +351,15 @@ fn log_audit_decision(
     }
 }
 
+/// Whether the accessing process belongs to a graphical session we can show a
+/// confirmation dialog in. Without a Wayland display there is no session to
+/// prompt, so the guard must fall back to its default rather than flood the
+/// prompt backend with dialogs no one can answer.
+fn has_graphical_session(env: &std::collections::HashMap<String, String>) -> bool {
+    env.get("WAYLAND_DISPLAY")
+        .is_some_and(|value| !value.is_empty())
+}
+
 fn resolve_policy_decision(
     prompt: &dyn Prompt,
     prompt_cache: &mut PromptDecisionCache,
@@ -371,6 +380,20 @@ fn resolve_policy_decision(
 
     if let Some(decision) = prompt_key.as_ref().and_then(|key| prompt_cache.get(key)) {
         return Ok(decision);
+    }
+
+    // An interactive prompt only makes sense when the accessing process has a
+    // graphical session to show the dialog in. System daemons (getty, dbus
+    // services, …) carry no Wayland environment; prompting for them is
+    // impossible and floods the prompt backend until the session wedges, so
+    // apply the configured default instead. The event is already audit-logged
+    // by the caller, so this stays visible without prompting.
+    if !has_graphical_session(&env) {
+        let default_decision = *default;
+        if let Some(key) = prompt_key {
+            prompt_cache.insert(key, default_decision.clone());
+        }
+        return Ok(default_decision);
     }
 
     let default_decision = *default;
@@ -502,9 +525,73 @@ pub fn ensure_path_exists(path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::child_directories;
+    use super::{
+        PromptDecisionCache, child_directories, has_graphical_session, resolve_policy_decision,
+    };
+    use crate::policy::{Decision, DecisionReason, ProcessSubject};
+    use crate::prompt::{Prompt, PromptRequest};
+    use std::collections::HashMap;
     use std::fs;
     use std::os::unix::fs::symlink;
+    use std::path::{Path, PathBuf};
+
+    /// A prompt backend that must never be reached. Used to prove the guard
+    /// resolves without ever invoking the dialog.
+    struct PanicPrompt;
+
+    impl Prompt for PanicPrompt {
+        fn ask(&self, _request: &PromptRequest<'_>) -> anyhow::Result<Decision> {
+            panic!("prompt must not be invoked without a graphical session");
+        }
+    }
+
+    fn system_daemon_subject() -> ProcessSubject {
+        ProcessSubject {
+            executable: PathBuf::from("/usr/bin/agetty"),
+            command: vec!["agetty".to_string()],
+            ancestors: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn graphical_session_requires_a_nonempty_wayland_display() {
+        let mut env = HashMap::new();
+        assert!(!has_graphical_session(&env), "no display => no session");
+
+        env.insert("WAYLAND_DISPLAY".to_string(), String::new());
+        assert!(!has_graphical_session(&env), "empty display => no session");
+
+        env.insert("WAYLAND_DISPLAY".to_string(), "wayland-1".to_string());
+        assert!(has_graphical_session(&env), "real display => session");
+    }
+
+    #[test]
+    fn resolve_applies_default_without_prompting_when_no_session() {
+        let subject = system_daemon_subject();
+        let decision = Decision::Prompt {
+            reason: DecisionReason::CrossOwnerRead,
+            default: Box::new(Decision::Allow),
+            scope: PathBuf::from("/etc"),
+        };
+        let mut cache = PromptDecisionCache {
+            decisions: HashMap::new(),
+        };
+
+        // Empty env => system daemon with no Wayland session. PanicPrompt would
+        // panic if the dialog were invoked.
+        let resolved = resolve_policy_decision(
+            &PanicPrompt,
+            &mut cache,
+            None,
+            &subject,
+            Path::new("/etc/issue"),
+            HashMap::new(),
+            decision,
+        )
+        .expect("resolve decision");
+
+        assert_eq!(resolved, Decision::Allow);
+    }
 
     #[test]
     fn child_directories_does_not_follow_symlinked_directories() {
