@@ -1,12 +1,15 @@
 use crate::policy::{Decision, DecisionReason, ProcessSubject};
 use anyhow::{Context, Result};
-use authd_protocol::{AuthRequest, AuthResponse, SOCKET_PATH};
-use peercred_ipc::Client as IpcClient;
+use authd_protocol::{AuthRequest, AuthResponse, DaemonRequest, SOCKET_PATH};
 use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
+
+const IPC_BUFFER_SIZE: usize = 64 * 1024;
 
 pub struct PromptRequest<'a> {
     pub subject: &'a ProcessSubject,
@@ -49,11 +52,21 @@ impl CommandPrompt {
     }
 }
 
-pub struct AuthdPrompt;
+pub struct AuthdPrompt {
+    socket_path: PathBuf,
+    timeout: Duration,
+}
 
 impl AuthdPrompt {
-    pub fn new() -> Self {
-        Self
+    pub fn new(timeout: Duration) -> Self {
+        Self::with_socket_path(SOCKET_PATH, timeout)
+    }
+
+    pub fn with_socket_path(socket_path: impl Into<PathBuf>, timeout: Duration) -> Self {
+        Self {
+            socket_path: socket_path.into(),
+            timeout,
+        }
     }
 }
 
@@ -80,7 +93,15 @@ impl Prompt for AuthdPrompt {
             )),
         };
 
-        match IpcClient::call(SOCKET_PATH, &auth_request) {
+        // authd reads a `DaemonRequest` envelope off the socket; the legacy
+        // confirm/exec flow is the `Exec` variant. Sending a bare `AuthRequest`
+        // deserializes as a sequence and authd rejects it ("expected variant
+        // identifier"), silently falling through to the default decision.
+        match call_authd(
+            &self.socket_path,
+            &DaemonRequest::Exec(auth_request),
+            self.timeout,
+        ) {
             Ok(AuthResponse::Success { .. }) => Ok(Decision::Allow),
             Ok(AuthResponse::Denied { .. }) => Ok(Decision::Deny),
             Ok(AuthResponse::AuthFailed) => Ok(Decision::Deny),
@@ -89,6 +110,34 @@ impl Prompt for AuthdPrompt {
             }
         }
     }
+}
+
+fn call_authd(
+    socket_path: &Path,
+    request: &DaemonRequest,
+    timeout: Duration,
+) -> Result<AuthResponse> {
+    let mut stream = UnixStream::connect(socket_path)
+        .with_context(|| format!("connecting to authd socket {}", socket_path.display()))?;
+    stream
+        .set_read_timeout(Some(timeout))
+        .context("setting authd read timeout")?;
+    stream
+        .set_write_timeout(Some(timeout))
+        .context("setting authd write timeout")?;
+
+    let payload = rmp_serde::to_vec(request).context("encoding authd request")?;
+    stream
+        .write_all(&payload)
+        .context("writing authd request")?;
+
+    let mut buffer = vec![0u8; IPC_BUFFER_SIZE];
+    let bytes_read = stream.read(&mut buffer).context("reading authd response")?;
+    if bytes_read == 0 {
+        anyhow::bail!("authd closed connection without response");
+    }
+
+    rmp_serde::from_slice(&buffer[..bytes_read]).context("decoding authd response")
 }
 
 impl Prompt for CommandPrompt {
@@ -141,4 +190,111 @@ fn display_subject(subject: &ProcessSubject) -> String {
         .and_then(|name| name.to_str())
         .unwrap_or("unknown")
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AuthdPrompt, Prompt, PromptRequest};
+    use crate::policy::{Decision, DecisionReason, ProcessSubject};
+    use authd_protocol::{AuthResponse, DaemonRequest};
+    use std::collections::HashMap;
+    use std::fs;
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixListener;
+    use std::path::{Path, PathBuf};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn authd_prompt_uses_default_when_socket_stalls() {
+        let socket_path = unique_socket_path("stall");
+        let listener = bind_test_socket(&socket_path);
+        let server = thread::spawn(move || {
+            let (_stream, _) = listener.accept().expect("accept authd client");
+            thread::sleep(Duration::from_millis(300));
+        });
+
+        let prompt = AuthdPrompt::with_socket_path(&socket_path, Duration::from_millis(50));
+        let subject = test_subject();
+        let target_path = test_target_path();
+        let request = prompt_request(&subject, &target_path, Decision::Deny);
+        let started = Instant::now();
+
+        let decision = prompt.ask(&request).expect("prompt decision");
+
+        assert_eq!(decision, Decision::Deny);
+        assert!(
+            started.elapsed() < Duration::from_millis(250),
+            "prompt should respect timeout instead of waiting for authd"
+        );
+        let _ = server.join();
+        let _ = fs::remove_file(socket_path);
+    }
+
+    #[test]
+    fn authd_prompt_sends_daemon_request_envelope() {
+        let socket_path = unique_socket_path("success");
+        let listener = bind_test_socket(&socket_path);
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept authd client");
+            let mut buffer = vec![0u8; 64 * 1024];
+            let bytes_read = stream.read(&mut buffer).expect("read request");
+            let request: DaemonRequest =
+                rmp_serde::from_slice(&buffer[..bytes_read]).expect("decode request");
+            assert!(matches!(request, DaemonRequest::Exec(_)));
+
+            let response =
+                rmp_serde::to_vec(&AuthResponse::Success { pid: 0 }).expect("encode response");
+            stream.write_all(&response).expect("write response");
+        });
+
+        let prompt = AuthdPrompt::with_socket_path(&socket_path, Duration::from_secs(1));
+        let subject = test_subject();
+        let target_path = test_target_path();
+        let request = prompt_request(&subject, &target_path, Decision::Deny);
+
+        let decision = prompt.ask(&request).expect("prompt decision");
+
+        assert_eq!(decision, Decision::Allow);
+        server.join().expect("server thread");
+        let _ = fs::remove_file(socket_path);
+    }
+
+    fn prompt_request<'a>(
+        subject: &'a ProcessSubject,
+        target_path: &'a Path,
+        default_decision: Decision,
+    ) -> PromptRequest<'a> {
+        PromptRequest {
+            subject,
+            target_path,
+            reason: DecisionReason::CrossOwnerRead,
+            default_decision,
+            env: HashMap::new(),
+        }
+    }
+
+    fn test_subject() -> ProcessSubject {
+        ProcessSubject {
+            executable: PathBuf::from("/usr/bin/test-subject"),
+            command: Vec::new(),
+            ancestors: Vec::new(),
+        }
+    }
+
+    fn test_target_path() -> PathBuf {
+        PathBuf::from("/home/osso/.config/example")
+    }
+
+    fn bind_test_socket(socket_path: &Path) -> UnixListener {
+        let _ = fs::remove_file(socket_path);
+        UnixListener::bind(socket_path).expect("bind test socket")
+    }
+
+    fn unique_socket_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "config-guard-authd-{name}-{}.sock",
+            std::process::id()
+        ))
+    }
 }

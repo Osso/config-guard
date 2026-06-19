@@ -163,7 +163,7 @@ fn run_test_prompt(
         default_decision,
         env: collect_wayland_env(),
     };
-    let decision = AuthdPrompt::new().ask(&request)?;
+    let decision = AuthdPrompt::new(Duration::from_secs(10)).ask(&request)?;
 
     println!("decision={decision:?}");
     Ok(match decision {
@@ -293,7 +293,7 @@ fn build_prompt(
 ) -> Box<dyn config_guard::prompt::Prompt> {
     match prompt_command {
         Some(command) => Box::new(config_guard::prompt::CommandPrompt::new(command, timeout)),
-        None => Box::new(config_guard::prompt::AuthdPrompt::new()),
+        None => Box::new(config_guard::prompt::AuthdPrompt::new(timeout)),
     }
 }
 
