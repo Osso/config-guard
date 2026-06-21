@@ -122,6 +122,67 @@ fn osso_config_allows_firefox_resolver_reads_after_replacement() {
     assert_eq!(decision, Decision::Allow);
 }
 
+#[test]
+fn osso_config_allows_wow_sim_state_access() {
+    let policy = Policy::new(parse_osso_config());
+
+    for (path, access) in [
+        (
+            "/home/osso/.local/share/wow-sim/cvars.json",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "/home/osso/.local/share/wow-sim/cvars.json",
+            config_guard::policy::AccessKind::Write,
+        ),
+        (
+            "/home/osso/.local/share/wow-sim/SavedVariables/Blizzard_AddOnList.lua",
+            config_guard::policy::AccessKind::Write,
+        ),
+    ] {
+        let decision = policy.decide(&subject("wow-sim"), path, access);
+
+        assert_eq!(decision, Decision::Allow);
+    }
+}
+
+#[test]
+fn osso_config_allows_zed_editor_state_reads() {
+    let policy = Policy::new(parse_osso_config());
+
+    let decision = policy.decide(
+        &subject("zed-editor"),
+        "/home/osso/.local/share/zed/db/0-stable/db.sqlite",
+        config_guard::policy::AccessKind::Read,
+    );
+
+    assert_eq!(decision, Decision::Allow);
+}
+
+#[test]
+fn osso_config_allows_k9s_state_access() {
+    let policy = Policy::new(parse_osso_config());
+
+    for (path, access) in [
+        (
+            "/home/osso/.local/share/k9s/clusters/do-nyc1-gc-kubernetes/do-nyc1-gc-kubernetes/config.yaml",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "/home/osso/.local/share/k9s/clusters/do-nyc1-gc-kubernetes/do-nyc1-gc-kubernetes/config.yaml",
+            config_guard::policy::AccessKind::Write,
+        ),
+        (
+            "/home/osso/.local/state/k9s/k9s.log",
+            config_guard::policy::AccessKind::Write,
+        ),
+    ] {
+        let decision = policy.decide(&subject("k9s"), path, access);
+
+        assert_eq!(decision, Decision::Allow);
+    }
+}
+
 fn parse_osso_config() -> PolicyConfig {
     toml::from_str(include_str!("../config/osso.toml")).expect("config/osso.toml should parse")
 }

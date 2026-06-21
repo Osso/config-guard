@@ -138,6 +138,11 @@ owner = "rtk"
 allowed_subjects = ["rtk"]
 
 [[owned_paths]]
+path = "/home/osso/.local/share/wow-sim"
+owner = "wow-sim"
+allowed_subjects = []
+
+[[owned_paths]]
 path = "/home/osso/.local/share/gvfs-metadata"
 owner = "gvfsd-metadata"
 allowed_subjects = [
@@ -301,7 +306,12 @@ allowed_subjects = ["xdg-desktop-portal-termfilechooser"]
 [[owned_paths]]
 path = "/home/osso/.config/zed"
 owner = "zeditor"
-allowed_subjects = []
+allowed_subjects = ["zed-editor"]
+
+[[owned_paths]]
+path = "/home/osso/.local/share/zed"
+owner = "zed"
+allowed_subjects = ["zed-editor"]
 
 [[owned_paths]]
 path = "/home/osso/.config/systemd"
@@ -699,6 +709,16 @@ allowed_subjects = []
 
 [[owned_paths]]
 path = "/home/osso/.config/k9s"
+owner = "k9s"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.local/share/k9s"
+owner = "k9s"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.local/state/k9s"
 owner = "k9s"
 allowed_subjects = []
 
