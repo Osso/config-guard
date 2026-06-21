@@ -223,6 +223,10 @@ fn subject_matches(allowed: &str, subject: &ProcessSubject, subject_name: &str) 
         return subject_matches_executable_with_ancestor_prefix(rule, subject);
     }
 
+    if let Some(rule) = allowed.strip_prefix("with-ancestor:") {
+        return subject_matches_with_ancestor(rule, subject, subject_name);
+    }
+
     false
 }
 
@@ -236,6 +240,30 @@ fn subject_matches_executable_with_ancestor_prefix(rule: &str, subject: &Process
             .ancestors
             .iter()
             .any(|ancestor| ancestor.starts_with(ancestor_prefix))
+}
+
+fn subject_matches_with_ancestor(rule: &str, subject: &ProcessSubject, subject_name: &str) -> bool {
+    let Some((subject_rule, ancestor_rule)) = rule.split_once('|') else {
+        return false;
+    };
+
+    subject_matches(subject_rule, subject, subject_name)
+        && subject
+            .ancestors
+            .iter()
+            .any(|ancestor| ancestor_matches(ancestor_rule, ancestor))
+}
+
+fn ancestor_matches(rule: &str, ancestor: &Path) -> bool {
+    if let Some(prefix) = rule.strip_prefix("exe-prefix:") {
+        return ancestor.starts_with(prefix);
+    }
+
+    if let Some(path) = rule.strip_prefix("exe:") {
+        return ancestor == Path::new(path);
+    }
+
+    ancestor.file_name().and_then(|name| name.to_str()) == Some(rule)
 }
 
 fn shared_path_matches(shared: &SharedPath, target_path: &Path) -> bool {

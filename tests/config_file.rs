@@ -76,6 +76,26 @@ fn osso_config_allows_claude_spawned_snapshot_helpers() {
 }
 
 #[test]
+fn osso_config_allows_jq_for_claude_config_only_with_trusted_ancestor() {
+    let policy = Policy::new(parse_osso_config());
+    let session_path = "/home/osso/.config/claude/projects/-home-osso-Repos-codex/session.jsonl";
+
+    let allowed = policy.decide(
+        &subject_with_ancestor("jq", "/usr/bin/codex"),
+        session_path,
+        config_guard::policy::AccessKind::Read,
+    );
+    let untrusted = policy.decide(
+        &subject_with_ancestor("jq", "/usr/bin/bash"),
+        session_path,
+        config_guard::policy::AccessKind::Read,
+    );
+
+    assert_eq!(allowed, Decision::Allow);
+    assert!(matches!(untrusted, Decision::Prompt { .. }));
+}
+
+#[test]
 fn osso_config_allows_codex_desktop_electron_for_codex_state() {
     let policy = Policy::new(parse_osso_config());
     let subject = ProcessSubject {

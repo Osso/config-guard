@@ -10,6 +10,7 @@ Policy decisions:
 - [x] Require explicit executable or executable-prefix rules for versioned Claude binaries; matching the owner name alone must not implicitly allow them.
 - [x] Let explicit owner allow rules take precedence over sensitive-path dev-tool prompts.
 - [x] Let ancestor-aware executable-prefix rules allow spawned shell helpers only when the expected ancestor is present.
+- [x] Let ancestor-aware subject rules allow helper binaries only when a trusted parent or ancestor is present.
 - [x] Choose the most specific owned-path rule when multiple owned paths match.
 - [x] Allow configured shared paths for common desktop processes.
 - [x] Let shared paths allow all subjects with `*`.

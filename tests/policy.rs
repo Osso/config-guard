@@ -138,6 +138,51 @@ fn ancestor_executable_prefix_does_not_allow_bash_without_claude_parent() {
 }
 
 #[test]
+fn ancestor_rule_can_allow_helper_by_parent_name() {
+    let mut config = PolicyConfig::default();
+    config.owned_paths.push(OwnedPath {
+        path: PathBuf::from("/home/osso/.config/claude"),
+        owner: "claude".to_string(),
+        allowed_subjects: vec!["with-ancestor:jq|codex".to_string()],
+    });
+    let policy = Policy::new(config);
+
+    let decision = policy.decide(
+        &subject_executable_with_ancestor("/usr/bin/jq", "/usr/bin/codex"),
+        "/home/osso/.config/claude/projects/session.jsonl",
+        AccessKind::Read,
+    );
+
+    assert_eq!(decision, Decision::Allow);
+}
+
+#[test]
+fn ancestor_rule_rejects_helper_without_matching_parent() {
+    let mut config = PolicyConfig::default();
+    config.owned_paths.push(OwnedPath {
+        path: PathBuf::from("/home/osso/.config/claude"),
+        owner: "claude".to_string(),
+        allowed_subjects: vec!["with-ancestor:jq|codex".to_string()],
+    });
+    let policy = Policy::new(config);
+
+    let decision = policy.decide(
+        &subject_executable_with_ancestor("/usr/bin/jq", "/usr/bin/bash"),
+        "/home/osso/.config/claude/projects/session.jsonl",
+        AccessKind::Read,
+    );
+
+    assert_eq!(
+        decision,
+        Decision::Prompt {
+            reason: DecisionReason::CrossOwnerRead,
+            default: Box::new(Decision::Allow),
+            scope: PathBuf::from("/home/osso/.config/claude"),
+        }
+    );
+}
+
+#[test]
 fn most_specific_owned_path_rule_wins() {
     let mut config = PolicyConfig::default();
     config.owned_paths.push(OwnedPath {
