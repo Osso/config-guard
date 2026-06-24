@@ -526,6 +526,12 @@ path = "/home/osso/.config/.jira"
 path = "/home/osso/.config/reddit"
 
 [[sensitive_paths]]
+path = "/home/osso/.config/mariadb-mysql-cdc"
+
+[[sensitive_paths]]
+path = "/home/osso/.config/mysql-gc"
+
+[[sensitive_paths]]
 path = "/home/osso/.kube"
 
 [[sensitive_paths]]
@@ -747,6 +753,16 @@ allowed_subjects = []
 [[owned_paths]]
 path = "/home/osso/.config/mailgun-cli"
 owner = "mailgun"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/mariadb-mysql-cdc"
+owner = "mariadb-mysql-cdc"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.config/mysql-gc"
+owner = "mysql-gc"
 allowed_subjects = []
 
 [[owned_paths]]

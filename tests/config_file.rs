@@ -203,6 +203,48 @@ fn osso_config_allows_k9s_state_access() {
     }
 }
 
+#[test]
+fn osso_config_guards_db_credential_dirs() {
+    let policy = Policy::new(parse_osso_config());
+
+    let cases = [
+        ("mysql-gc", "/home/osso/.config/mysql-gc/prod.cnf"),
+        (
+            "mariadb-mysql-cdc",
+            "/home/osso/.config/mariadb-mysql-cdc/config.json",
+        ),
+    ];
+
+    for (owner, path) in cases {
+        // The owning tool reads its own credentials without a prompt.
+        assert_eq!(
+            policy.decide(
+                &subject(owner),
+                path,
+                config_guard::policy::AccessKind::Read
+            ),
+            Decision::Allow,
+            "{owner} should access its own credentials",
+        );
+
+        // A dev tool reading the same credentials must prompt.
+        assert!(
+            matches!(
+                policy.decide(
+                    &subject("claude"),
+                    path,
+                    config_guard::policy::AccessKind::Read
+                ),
+                Decision::Prompt {
+                    reason: DecisionReason::SensitiveReadByDevTool,
+                    ..
+                }
+            ),
+            "dev tool reading {path} should prompt",
+        );
+    }
+}
+
 fn parse_osso_config() -> PolicyConfig {
     toml::from_str(include_str!("../config/osso.toml")).expect("config/osso.toml should parse")
 }
