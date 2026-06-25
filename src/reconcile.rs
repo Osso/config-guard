@@ -298,3 +298,106 @@ fn timestamp_suffix() -> u64 {
         .map(|duration| duration.as_secs())
         .unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::policy::{AccessKind, OwnedPath, PathRule, SharedPath};
+
+    #[test]
+    fn helper_functions_cover_policy_and_action_branches() {
+        let entry = PathBuf::from("/home/osso/.config/tool");
+        let config = PolicyConfig {
+            owned_paths: vec![OwnedPath {
+                path: entry.clone(),
+                owner: "tool".to_string(),
+                allowed_subjects: Vec::new(),
+            }],
+            shared_paths: vec![SharedPath {
+                path: PathBuf::from("/home/osso/.config/shared"),
+                path_prefix: false,
+                allowed_subjects: Vec::new(),
+                access: vec![AccessKind::Read],
+            }],
+            sensitive_paths: vec![PathRule {
+                path: PathBuf::from("/home/osso/.config/secret"),
+            }],
+            dev_tools: Vec::new(),
+            fail_open: true,
+        };
+
+        assert_eq!(
+            keep_configured_action(&entry).kind,
+            ActionKind::KeepConfigured
+        );
+        assert_eq!(
+            applied_kind(true, ActionKind::Archived, ActionKind::ArchiveCandidate),
+            ActionKind::Archived
+        );
+        assert_eq!(
+            applied_kind(false, ActionKind::Archived, ActionKind::ArchiveCandidate),
+            ActionKind::ArchiveCandidate
+        );
+        assert!(policy_covers_path(&config, &entry));
+        assert!(policy_covers_path(
+            &config,
+            Path::new("/home/osso/.config/shared")
+        ));
+        assert!(policy_covers_path(
+            &config,
+            Path::new("/home/osso/.config/secret/token")
+        ));
+        assert!(paths_overlap(&entry, Path::new("/home/osso/.config")));
+        assert!(is_archive_dir(
+            Path::new("/home/osso/.config/archive"),
+            Path::new("/home/osso/.config/archive")
+        ));
+    }
+
+    #[test]
+    fn helper_functions_cover_archive_and_owner_branches() {
+        let archive_dir = std::env::temp_dir().join(format!(
+            "config-guard-reconcile-unit-{}",
+            std::process::id()
+        ));
+        let entry = archive_dir.join("source");
+        fs::create_dir_all(&entry).expect("create source dir");
+        fs::create_dir_all(archive_dir.join("archive/source")).expect("create collision");
+
+        let target = archive_target(&entry, &archive_dir.join("archive"));
+        assert!(
+            target
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("source-"))
+        );
+        assert_eq!(
+            owner_names_for_entry(Path::new("@Vendor Tool-cli")).unwrap(),
+            vec!["Vendor Tool", "vendor tool", "vendor-tool", "vendortool"]
+        );
+        assert!(owner_names_for_entry(Path::new("")).is_none());
+        assert!(!path_binary_dirs().is_empty() || std::env::var_os("PATH").is_none());
+        assert!(timestamp_suffix() > 0);
+
+        let _ = fs::remove_dir_all(archive_dir);
+    }
+
+    #[test]
+    fn helper_functions_cover_binary_and_apply_errors() {
+        let root = std::env::temp_dir().join(format!(
+            "config-guard-reconcile-binary-unit-{}",
+            std::process::id()
+        ));
+        let bin = root.join("bin");
+        let entry = root.join("config/new-tool");
+        fs::create_dir_all(&entry).expect("create config dir");
+        fs::create_dir_all(&bin).expect("create bin dir");
+        fs::write(bin.join("new-tool"), "").expect("create bin");
+
+        let found = find_associated_binary(&entry, &[bin]).expect("binary match");
+        assert_eq!(found.owner, "new-tool");
+        assert!(append_owned_path(None, &entry, "new-tool").is_err());
+
+        let _ = fs::remove_dir_all(root);
+    }
+}

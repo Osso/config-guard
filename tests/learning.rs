@@ -1,4 +1,8 @@
-use config_guard::learning::{PathAlias, config_root_for, config_root_for_home_or_alias};
+use config_guard::learning::{
+    AuditLearner, PathAlias, config_root_for, config_root_for_home, config_root_for_home_or_alias,
+};
+use config_guard::policy::{AccessKind, ProcessSubject};
+use std::fs;
 use std::path::PathBuf;
 
 #[test]
@@ -45,6 +49,17 @@ fn ignores_paths_outside_known_config_roots() {
 }
 
 #[test]
+fn config_root_for_home_rejects_empty_config_subdir() {
+    let home = PathBuf::from("/home/osso");
+
+    assert_eq!(config_root_for_home(&home.join(".config"), &home), None);
+    assert_eq!(
+        config_root_for_home(&home.join("Downloads/file"), &home),
+        None
+    );
+}
+
+#[test]
 fn maps_symlinked_config_targets_back_to_logical_config_root() {
     let home = PathBuf::from("/home/osso");
     let aliases = vec![PathAlias {
@@ -56,6 +71,47 @@ fn maps_symlinked_config_targets_back_to_logical_config_root() {
     let root = config_root_for_home_or_alias(&target, &home, &aliases);
 
     assert_eq!(root, Some(home.join(".config/gmail-cli")));
+}
+
+#[test]
+fn audit_learner_writes_observations_and_owned_path_candidates() {
+    let root =
+        std::env::temp_dir().join(format!("config-guard-learning-test-{}", std::process::id()));
+    let home = root.join("home");
+    let output = root.join("learned.toml");
+    fs::create_dir_all(home.join(".config/gh")).expect("create config root");
+    let subject = ProcessSubject {
+        executable: PathBuf::from("/usr/bin/gh"),
+        command: vec!["gh".to_string()],
+        ancestors: Vec::new(),
+    };
+    let mut learner = AuditLearner::new(output.clone(), home.clone());
+
+    learner
+        .observe(
+            &subject,
+            &home.join(".config/gh/hosts.yml"),
+            AccessKind::Read,
+        )
+        .expect("write learned output");
+    learner
+        .observe(
+            &subject,
+            &home.join(".config/gh/config.yml"),
+            AccessKind::Write,
+        )
+        .expect("write learned output");
+    learner
+        .observe(&subject, &home.join("Downloads/file"), AccessKind::Read)
+        .expect("ignore unknown root");
+
+    let content = fs::read_to_string(&output).expect("read learned output");
+    assert!(content.contains("owner = \"gh\""));
+    assert!(content.contains("access = \"read\""));
+    assert!(content.contains("access = \"write\""));
+    assert!(!content.contains("Downloads"));
+
+    let _ = fs::remove_dir_all(root);
 }
 
 fn home_path(suffix: &str) -> PathBuf {

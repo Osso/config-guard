@@ -75,3 +75,44 @@ fn uses_argv0_as_subject_when_exe_link_is_missing() {
 
     assert_eq!(subject.executable, PathBuf::from("rtk"));
 }
+
+#[test]
+fn uses_executable_link_before_argv0_for_subject() {
+    let process = ProcessIdentity {
+        pid: 1234,
+        executable: Some(PathBuf::from("/usr/bin/codex")),
+        command: vec!["rtk".to_string()],
+        cwd: None,
+        start_time_ticks: Some(42),
+        ancestors: Vec::new(),
+    };
+
+    let subject = process.subject();
+
+    assert_eq!(subject.executable, PathBuf::from("/usr/bin/codex"));
+}
+
+#[test]
+fn uses_unknown_subject_when_exe_and_command_are_missing() {
+    let process = ProcessIdentity {
+        pid: 1234,
+        executable: None,
+        command: Vec::new(),
+        cwd: None,
+        start_time_ticks: None,
+        ancestors: Vec::new(),
+    };
+
+    let subject = process.subject();
+
+    assert_eq!(subject.executable, PathBuf::from("unknown"));
+}
+
+#[test]
+fn rejects_proc_stat_with_bad_numeric_fields() {
+    let bad_start = "1234 (name) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 not-number 21";
+    let bad_parent = "1234 (name) S not-parent 2 3 4 5";
+
+    assert!(parse_start_time_ticks(bad_start).is_err());
+    assert!(parse_parent_pid(bad_parent).is_err());
+}

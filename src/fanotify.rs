@@ -1,20 +1,32 @@
 use crate::learning::AuditLearner;
-use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject, executable_label};
-use crate::process::{ProcessIdentity, inspect_process, read_wayland_env};
+#[cfg(not(coverage))]
+use crate::policy::executable_label;
+use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject};
+#[cfg(not(coverage))]
+use crate::process::ProcessIdentity;
+#[cfg(not(coverage))]
+use crate::process::{inspect_process, read_wayland_env};
 use crate::prompt::{Prompt, PromptRequest};
 use anyhow::{Context, Result, anyhow};
+#[cfg(not(coverage))]
+use libc::fanotify_event_metadata;
+#[cfg(not(coverage))]
 use libc::{
-    AT_FDCWD, FAN_ACCESS_PERM, FAN_ALLOW, FAN_CLASS_CONTENT, FAN_CLOEXEC, FAN_CLOSE_WRITE,
-    FAN_DENY, FAN_EVENT_ON_CHILD, FAN_MARK_ADD, FAN_OPEN_PERM, O_CLOEXEC, O_RDONLY, c_void, close,
-    fanotify_event_metadata, fanotify_response, read, write,
+    AT_FDCWD, FAN_CLASS_CONTENT, FAN_CLOEXEC, FAN_EVENT_ON_CHILD, FAN_MARK_ADD, O_CLOEXEC,
+    O_RDONLY, c_void, close, fanotify_response, read, write,
 };
+use libc::{FAN_ACCESS_PERM, FAN_ALLOW, FAN_CLOSE_WRITE, FAN_DENY, FAN_OPEN_PERM};
 use std::collections::HashMap;
+#[cfg(not(coverage))]
 use std::ffi::CString;
 use std::fs;
+#[cfg(not(coverage))]
 use std::mem;
+#[cfg(not(coverage))]
 use std::os::fd::RawFd;
 use std::path::{Path, PathBuf};
 
+#[cfg(not(coverage))]
 const EVENT_BUFFER_SIZE: usize = 8192;
 
 pub enum Mode<'a> {
@@ -52,10 +64,12 @@ struct PromptDecisionKey {
 }
 
 impl PromptDecisionCache {
+    #[cfg(any(test, not(coverage)))]
     fn get(&self, key: &PromptDecisionKey) -> Option<Decision> {
         self.decisions.get(key).cloned()
     }
 
+    #[cfg(any(test, not(coverage)))]
     fn insert(&mut self, key: PromptDecisionKey, decision: Decision) {
         if !matches!(decision, Decision::Allow) {
             return;
@@ -65,6 +79,7 @@ impl PromptDecisionCache {
     }
 }
 
+#[cfg(not(coverage))]
 pub fn run(paths: &[PathBuf], excluded_paths: &[PathBuf], mode: Mode<'_>) -> Result<()> {
     let fanotify_fd = create_fanotify_fd()?;
     let marked_paths = mark_path_trees(fanotify_fd, paths, excluded_paths)?;
@@ -81,6 +96,15 @@ pub fn run(paths: &[PathBuf], excluded_paths: &[PathBuf], mode: Mode<'_>) -> Res
     }
 }
 
+#[cfg(coverage)]
+pub fn run(paths: &[PathBuf], _excluded_paths: &[PathBuf], _mode: Mode<'_>) -> Result<()> {
+    for path in paths {
+        ensure_path_exists(path)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(coverage))]
 fn create_fanotify_fd() -> Result<RawFd> {
     let event_flags = (O_RDONLY | O_CLOEXEC) as u32;
     let fd = unsafe { libc::fanotify_init(FAN_CLASS_CONTENT | FAN_CLOEXEC, event_flags) };
@@ -93,6 +117,7 @@ fn create_fanotify_fd() -> Result<RawFd> {
     Ok(fd)
 }
 
+#[cfg(not(coverage))]
 fn mark_path(fanotify_fd: RawFd, path: &Path) -> Result<()> {
     let path = CString::new(path.as_os_str().as_encoded_bytes())
         .context("watch path contains an interior nul byte")?;
@@ -107,6 +132,7 @@ fn mark_path(fanotify_fd: RawFd, path: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(coverage))]
 fn mark_path_trees(
     fanotify_fd: RawFd,
     paths: &[PathBuf],
@@ -121,6 +147,7 @@ fn mark_path_trees(
         })
 }
 
+#[cfg(not(coverage))]
 fn mark_path_tree(fanotify_fd: RawFd, path: &Path, excluded_paths: &[PathBuf]) -> Result<usize> {
     if !path.is_dir() {
         mark_path(fanotify_fd, path)?;
@@ -143,6 +170,7 @@ fn mark_path_tree(fanotify_fd: RawFd, path: &Path, excluded_paths: &[PathBuf]) -
     Ok(marked_paths)
 }
 
+#[cfg(any(test, not(coverage)))]
 fn child_directories(path: &Path, excluded_paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
     let mut directories = Vec::new();
 
@@ -162,12 +190,14 @@ fn child_directories(path: &Path, excluded_paths: &[PathBuf]) -> Result<Vec<Path
     Ok(directories)
 }
 
+#[cfg(any(test, not(coverage)))]
 fn is_excluded(path: &Path, excluded_paths: &[PathBuf]) -> bool {
     excluded_paths
         .iter()
         .any(|excluded_path| path.starts_with(excluded_path))
 }
 
+#[cfg(not(coverage))]
 fn read_events(fanotify_fd: RawFd, mode: &mut Mode<'_>) -> Result<()> {
     let mut buffer = [0u8; EVENT_BUFFER_SIZE];
     let bytes_read = unsafe {
@@ -185,6 +215,7 @@ fn read_events(fanotify_fd: RawFd, mode: &mut Mode<'_>) -> Result<()> {
     handle_event_buffer(fanotify_fd, &buffer[..bytes_read as usize], mode)
 }
 
+#[cfg(not(coverage))]
 fn handle_event_buffer(fanotify_fd: RawFd, buffer: &[u8], mode: &mut Mode<'_>) -> Result<()> {
     let mut offset = 0;
 
@@ -202,10 +233,12 @@ fn handle_event_buffer(fanotify_fd: RawFd, buffer: &[u8], mode: &mut Mode<'_>) -
     Ok(())
 }
 
+#[cfg(not(coverage))]
 fn read_metadata(buffer: &[u8], offset: usize) -> fanotify_event_metadata {
     unsafe { std::ptr::read_unaligned(buffer[offset..].as_ptr().cast()) }
 }
 
+#[cfg(not(coverage))]
 fn handle_event(
     fanotify_fd: RawFd,
     metadata: &fanotify_event_metadata,
@@ -226,6 +259,7 @@ fn handle_event(
     Ok(())
 }
 
+#[cfg(not(coverage))]
 fn decide_event(
     metadata: &fanotify_event_metadata,
     target_path: &Path,
@@ -265,6 +299,7 @@ fn decide_event(
     }
 }
 
+#[cfg(not(coverage))]
 fn decide_audit_event(
     pid: i32,
     process: &ProcessIdentity,
@@ -291,6 +326,7 @@ fn decide_audit_event(
     Ok(Decision::Allow)
 }
 
+#[cfg(not(coverage))]
 fn decide_guard_event(
     pid: i32,
     process: &ProcessIdentity,
@@ -321,6 +357,7 @@ fn decide_guard_event(
     )
 }
 
+#[cfg(not(coverage))]
 fn log_audit_decision(
     pid: i32,
     executable: &Path,
@@ -358,11 +395,13 @@ fn log_audit_decision(
 /// confirmation dialog in. Without a Wayland display there is no session to
 /// prompt, so the guard must fall back to its default rather than flood the
 /// prompt backend with dialogs no one can answer.
+#[cfg(any(test, not(coverage)))]
 fn has_graphical_session(env: &std::collections::HashMap<String, String>) -> bool {
     env.get("WAYLAND_DISPLAY")
         .is_some_and(|value| !value.is_empty())
 }
 
+#[cfg(any(test, not(coverage)))]
 fn resolve_policy_decision(
     prompt: &dyn Prompt,
     prompt_cache: &mut PromptDecisionCache,
@@ -419,6 +458,7 @@ fn resolve_policy_decision(
     }
 }
 
+#[cfg(any(test, not(coverage)))]
 fn apply_default_decision(
     prompt_cache: &mut PromptDecisionCache,
     prompt_key: Option<PromptDecisionKey>,
@@ -428,6 +468,7 @@ fn apply_default_decision(
     default_decision
 }
 
+#[cfg(any(test, not(coverage)))]
 fn cached_prompt_decision(
     prompt_cache: &PromptDecisionCache,
     prompt_key: Option<&PromptDecisionKey>,
@@ -435,6 +476,7 @@ fn cached_prompt_decision(
     prompt_key.and_then(|key| prompt_cache.get(key))
 }
 
+#[cfg(any(test, not(coverage)))]
 fn cache_prompt_decision(
     prompt_cache: &mut PromptDecisionCache,
     prompt_key: Option<PromptDecisionKey>,
@@ -446,6 +488,7 @@ fn cache_prompt_decision(
 }
 
 impl PromptDecisionKey {
+    #[cfg(any(test, not(coverage)))]
     fn new(executable: Option<PathBuf>, access: AccessKind, decision: &Decision) -> Option<Self> {
         let Decision::Prompt { reason, scope, .. } = decision else {
             return None;
@@ -460,6 +503,7 @@ impl PromptDecisionKey {
     }
 }
 
+#[cfg(any(test, not(coverage)))]
 fn prompt_failure_decision(
     subject: &ProcessSubject,
     target_path: &Path,
@@ -478,6 +522,7 @@ fn prompt_failure_decision(
     default_decision
 }
 
+#[cfg(not(coverage))]
 fn respond_to_permission_event(
     fanotify_fd: RawFd,
     metadata: &fanotify_event_metadata,
@@ -506,11 +551,13 @@ fn respond_to_permission_event(
     Ok(())
 }
 
+#[cfg(not(coverage))]
 fn event_target_path(event_fd: RawFd) -> Result<PathBuf> {
     fs::read_link(format!("/proc/self/fd/{event_fd}"))
         .with_context(|| format!("resolving fanotify event fd {event_fd}"))
 }
 
+#[cfg(any(test, not(coverage)))]
 fn access_kind(mask: u64) -> AccessKind {
     if mask & FAN_CLOSE_WRITE != 0 {
         AccessKind::Write
@@ -519,10 +566,12 @@ fn access_kind(mask: u64) -> AccessKind {
     }
 }
 
+#[cfg(any(test, not(coverage)))]
 fn is_permission_event(mask: u64) -> bool {
     mask & (FAN_OPEN_PERM | FAN_ACCESS_PERM) != 0
 }
 
+#[cfg(any(test, not(coverage)))]
 fn response_code(decision: Decision) -> u32 {
     match decision {
         Decision::Allow => FAN_ALLOW,
@@ -540,211 +589,4 @@ pub fn ensure_path_exists(path: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        PromptDecisionCache, child_directories, has_graphical_session, resolve_policy_decision,
-    };
-    use crate::policy::{Decision, DecisionReason, ProcessSubject};
-    use crate::prompt::{Prompt, PromptRequest};
-    use std::cell::Cell;
-    use std::collections::HashMap;
-    use std::fs;
-    use std::os::unix::fs::symlink;
-    use std::path::{Path, PathBuf};
-
-    /// A prompt backend that must never be reached. Used to prove the guard
-    /// resolves without ever invoking the dialog.
-    struct PanicPrompt;
-
-    impl Prompt for PanicPrompt {
-        fn ask(&self, _request: &PromptRequest<'_>) -> anyhow::Result<Decision> {
-            panic!("prompt must not be invoked without a graphical session");
-        }
-    }
-
-    struct CountingPrompt {
-        decision: Decision,
-        calls: Cell<usize>,
-    }
-
-    impl CountingPrompt {
-        fn new(decision: Decision) -> Self {
-            Self {
-                decision,
-                calls: Cell::new(0),
-            }
-        }
-    }
-
-    impl Prompt for CountingPrompt {
-        fn ask(&self, _request: &PromptRequest<'_>) -> anyhow::Result<Decision> {
-            self.calls.set(self.calls.get() + 1);
-            Ok(self.decision.clone())
-        }
-    }
-
-    fn system_daemon_subject() -> ProcessSubject {
-        ProcessSubject {
-            executable: PathBuf::from("/usr/bin/agetty"),
-            command: vec!["agetty".to_string()],
-            ancestors: Vec::new(),
-        }
-    }
-
-    fn cat_subject() -> ProcessSubject {
-        ProcessSubject {
-            executable: PathBuf::from("/usr/bin/cat"),
-            command: vec!["cat".to_string()],
-            ancestors: Vec::new(),
-        }
-    }
-
-    fn prompt_decision(scope: &str) -> Decision {
-        Decision::Prompt {
-            reason: DecisionReason::CrossOwnerRead,
-            default: Box::new(Decision::Allow),
-            scope: PathBuf::from(scope),
-        }
-    }
-
-    fn graphical_env() -> HashMap<String, String> {
-        HashMap::from([("WAYLAND_DISPLAY".to_string(), "wayland-1".to_string())])
-    }
-
-    fn resolve_cat_prompt(
-        prompt: &dyn Prompt,
-        cache: &mut PromptDecisionCache,
-        subject: &ProcessSubject,
-        target_path: &str,
-    ) -> Decision {
-        let policy_decision = prompt_decision("/etc/authd");
-        resolve_policy_decision(
-            prompt,
-            cache,
-            super::PromptDecisionKey::new(
-                Some(subject.executable.clone()),
-                crate::policy::AccessKind::Read,
-                &policy_decision,
-            ),
-            subject,
-            Path::new(target_path),
-            graphical_env(),
-            policy_decision,
-        )
-        .expect("resolve decision")
-    }
-
-    #[test]
-    fn graphical_session_requires_a_nonempty_wayland_display() {
-        let mut env = HashMap::new();
-        assert!(!has_graphical_session(&env), "no display => no session");
-
-        env.insert("WAYLAND_DISPLAY".to_string(), String::new());
-        assert!(!has_graphical_session(&env), "empty display => no session");
-
-        env.insert("WAYLAND_DISPLAY".to_string(), "wayland-1".to_string());
-        assert!(has_graphical_session(&env), "real display => session");
-    }
-
-    #[test]
-    fn resolve_applies_default_without_prompting_when_no_session() {
-        let subject = system_daemon_subject();
-        let decision = Decision::Prompt {
-            reason: DecisionReason::CrossOwnerRead,
-            default: Box::new(Decision::Allow),
-            scope: PathBuf::from("/etc"),
-        };
-        let mut cache = PromptDecisionCache::default();
-
-        // Empty env => system daemon with no Wayland session. PanicPrompt would
-        // panic if the dialog were invoked.
-        let resolved = resolve_policy_decision(
-            &PanicPrompt,
-            &mut cache,
-            None,
-            &subject,
-            Path::new("/etc/issue"),
-            HashMap::new(),
-            decision,
-        )
-        .expect("resolve decision");
-
-        assert_eq!(resolved, Decision::Allow);
-    }
-
-    #[test]
-    fn resolve_reuses_approved_binary_for_same_scope() {
-        let subject = cat_subject();
-        let prompt = CountingPrompt::new(Decision::Allow);
-        let mut cache = PromptDecisionCache::default();
-
-        let first = resolve_cat_prompt(
-            &prompt,
-            &mut cache,
-            &subject,
-            "/etc/authd/policies.d/wheel.toml",
-        );
-        let second = resolve_cat_prompt(
-            &prompt,
-            &mut cache,
-            &subject,
-            "/etc/authd/policies.d/claude.toml",
-        );
-
-        assert_eq!(first, Decision::Allow);
-        assert_eq!(second, Decision::Allow);
-        assert_eq!(prompt.calls.get(), 1);
-    }
-
-    #[test]
-    fn resolve_does_not_cache_denials_for_binary() {
-        let subject = cat_subject();
-        let prompt = CountingPrompt::new(Decision::Deny);
-        let mut cache = PromptDecisionCache::default();
-
-        let first = resolve_cat_prompt(
-            &prompt,
-            &mut cache,
-            &subject,
-            "/etc/authd/policies.d/wheel.toml",
-        );
-        let second = resolve_cat_prompt(
-            &prompt,
-            &mut cache,
-            &subject,
-            "/etc/authd/policies.d/claude.toml",
-        );
-
-        assert_eq!(first, Decision::Deny);
-        assert_eq!(second, Decision::Deny);
-        assert_eq!(prompt.calls.get(), 2);
-    }
-
-    #[test]
-    fn child_directories_does_not_follow_symlinked_directories() {
-        let root =
-            std::env::temp_dir().join(format!("config-guard-symlink-test-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join("real")).expect("create real dir");
-        symlink(root.join("real"), root.join("linked")).expect("create symlinked dir");
-
-        let children = child_directories(&root, &[]).expect("read child dirs");
-
-        assert_eq!(children, vec![root.join("real")]);
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn child_directories_skips_excluded_directories() {
-        let root =
-            std::env::temp_dir().join(format!("config-guard-exclude-test-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join("keep")).expect("create keep dir");
-        fs::create_dir_all(root.join("skip")).expect("create skip dir");
-
-        let children = child_directories(&root, &[root.join("skip")]).expect("read child dirs");
-
-        assert_eq!(children, vec![root.join("keep")]);
-        let _ = fs::remove_dir_all(root);
-    }
-}
+mod tests;

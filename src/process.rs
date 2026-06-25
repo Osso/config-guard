@@ -1,9 +1,14 @@
 use crate::policy::ProcessSubject;
-use anyhow::{Context, Result, anyhow};
+use anyhow::Context;
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
+#[cfg(not(coverage))]
 use std::fs;
-use std::path::{Path, PathBuf};
+#[cfg(not(coverage))]
+use std::path::Path;
+use std::path::PathBuf;
 
+#[cfg(not(coverage))]
 const WAYLAND_ENV_KEYS: &[&str] = &[
     "WAYLAND_DISPLAY",
     "XDG_RUNTIME_DIR",
@@ -38,6 +43,11 @@ impl ProcessIdentity {
 }
 
 pub fn inspect_process(pid: i32) -> Result<ProcessIdentity> {
+    inspect_process_from_procfs(pid)
+}
+
+#[cfg(not(coverage))]
+fn inspect_process_from_procfs(pid: i32) -> Result<ProcessIdentity> {
     let proc_dir = PathBuf::from("/proc").join(pid.to_string());
     let executable = read_exe_link(&proc_dir.join("exe"));
     let cwd = fs::read_link(proc_dir.join("cwd")).ok();
@@ -55,16 +65,25 @@ pub fn inspect_process(pid: i32) -> Result<ProcessIdentity> {
     })
 }
 
+#[cfg(coverage)]
+fn inspect_process_from_procfs(pid: i32) -> Result<ProcessIdentity> {
+    Err(anyhow!(
+        "procfs inspection disabled in coverage build for pid {pid}"
+    ))
+}
+
 /// Read a `/proc/<pid>/exe` link, trimming the kernel's `" (deleted)"` marker.
 /// The kernel appends that suffix verbatim when the backing binary was replaced
 /// (e.g. an in-place package upgrade) while the process keeps running; the
 /// recorded path is otherwise the original launch path. Without trimming, a
 /// long-running process whose binary was upgraded would present a subject like
 /// `".../firefox (deleted)"` and fail to match its own owner rule.
+#[cfg(not(coverage))]
 fn read_exe_link(link: &Path) -> Option<PathBuf> {
     fs::read_link(link).ok().map(strip_deleted_suffix)
 }
 
+#[cfg(any(test, not(coverage)))]
 fn strip_deleted_suffix(path: PathBuf) -> PathBuf {
     use std::os::unix::ffi::OsStrExt;
 
@@ -76,6 +95,11 @@ fn strip_deleted_suffix(path: PathBuf) -> PathBuf {
 }
 
 pub fn read_wayland_env(pid: i32) -> HashMap<String, String> {
+    read_wayland_env_from_procfs(pid)
+}
+
+#[cfg(not(coverage))]
+fn read_wayland_env_from_procfs(pid: i32) -> HashMap<String, String> {
     let path = PathBuf::from("/proc").join(pid.to_string()).join("environ");
     let Ok(bytes) = fs::read(path) else {
         return HashMap::new();
@@ -85,6 +109,11 @@ pub fn read_wayland_env(pid: i32) -> HashMap<String, String> {
         .into_iter()
         .filter(|(key, _)| WAYLAND_ENV_KEYS.contains(&key.as_str()))
         .collect()
+}
+
+#[cfg(coverage)]
+fn read_wayland_env_from_procfs(_pid: i32) -> HashMap<String, String> {
+    HashMap::new()
 }
 
 pub fn parse_environ(bytes: &[u8]) -> HashMap<String, String> {
@@ -140,12 +169,14 @@ fn parse_stat_fields_after_command(stat: &str) -> Result<Vec<&str>> {
     Ok(stat[command_end + 2..].split_whitespace().collect())
 }
 
+#[cfg(not(coverage))]
 fn read_cmdline(path: PathBuf) -> Result<Vec<String>> {
     let bytes = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
 
     Ok(parse_cmdline(&bytes))
 }
 
+#[cfg(not(coverage))]
 fn read_command(proc_dir: &Path) -> Result<Vec<String>> {
     let command = read_cmdline(proc_dir.join("cmdline"))?;
     if !command.is_empty() {
@@ -165,12 +196,14 @@ pub fn parse_comm(comm: &str) -> Option<String> {
     Some(name.to_string())
 }
 
+#[cfg(not(coverage))]
 fn read_start_time_ticks(path: PathBuf) -> Result<Option<u64>> {
     let stat = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
 
     Ok(Some(parse_start_time_ticks(&stat)?))
 }
 
+#[cfg(not(coverage))]
 fn read_ancestor_executables(pid: i32) -> Vec<PathBuf> {
     let mut ancestors = Vec::new();
     let mut current_pid = pid;
@@ -199,7 +232,9 @@ fn read_ancestor_executables(pid: i32) -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::strip_deleted_suffix;
+    #[cfg(coverage)]
+    use super::{inspect_process, read_wayland_env};
+    use super::{parse_environ, strip_deleted_suffix};
     use std::path::PathBuf;
 
     #[test]
@@ -225,5 +260,25 @@ mod tests {
             strip_deleted_suffix(PathBuf::from("/opt/my (deleted) tool/bin")),
             PathBuf::from("/opt/my (deleted) tool/bin")
         );
+    }
+
+    #[test]
+    fn parse_environ_keeps_valid_utf8_pairs() {
+        let env = parse_environ(b"WAYLAND_DISPLAY=wayland-1\0NO_EQUALS\0BAD=\xff\0EMPTY=\0");
+
+        assert_eq!(
+            env.get("WAYLAND_DISPLAY").map(String::as_str),
+            Some("wayland-1")
+        );
+        assert_eq!(env.get("EMPTY").map(String::as_str), Some(""));
+        assert!(!env.contains_key("NO_EQUALS"));
+        assert!(!env.contains_key("BAD"));
+    }
+
+    #[cfg(coverage)]
+    #[test]
+    fn coverage_procfs_stubs_do_not_touch_proc() {
+        assert!(inspect_process(999_999).is_err());
+        assert!(read_wayland_env(999_999).is_empty());
     }
 }

@@ -1,4 +1,4 @@
-use config_guard::policy::{OwnedPath, PathRule, PolicyConfig, SharedPath};
+use config_guard::policy::{AccessKind, OwnedPath, PathRule, PolicyConfig, SharedPath};
 use config_guard::reconcile::{ActionKind, ReconcileOptions, plan_reconcile};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -61,6 +61,86 @@ fn association_matching_handles_scoped_config_dirs() {
 
     assert_eq!(plan.actions[0].kind, ActionKind::AssociateCandidate);
     assert_eq!(plan.actions[0].owner.as_deref(), Some("checkly"));
+}
+
+#[test]
+fn association_matching_handles_dot_prefixed_config_dirs() {
+    let temp = TempConfigHome::new("association_matching_handles_dot_prefixed_config_dirs");
+    temp.create_dir(".aws");
+    temp.create_bin("aws");
+    let config = PolicyConfig::default();
+    let options = ReconcileOptions::new(temp.path().to_path_buf(), &config)
+        .with_binary_dirs(vec![temp.bin_path()]);
+
+    let plan = plan_reconcile(options).expect("reconcile should plan");
+
+    assert_eq!(plan.actions[0].kind, ActionKind::AssociateCandidate);
+    assert_eq!(plan.actions[0].owner.as_deref(), Some("aws"));
+}
+
+#[test]
+fn configured_shared_and_sensitive_paths_are_kept() {
+    let temp = TempConfigHome::new("configured_shared_and_sensitive_paths_are_kept");
+    temp.create_dir("shared");
+    temp.create_dir("secret");
+    let config = PolicyConfig {
+        owned_paths: Vec::new(),
+        shared_paths: vec![SharedPath {
+            path: temp.path().join("shared"),
+            path_prefix: false,
+            access: vec![AccessKind::Read],
+            allowed_subjects: Vec::new(),
+        }],
+        sensitive_paths: vec![PathRule {
+            path: temp.path().join("secret"),
+        }],
+        dev_tools: Vec::new(),
+        fail_open: true,
+    };
+
+    let plan = plan_reconcile(ReconcileOptions::new(temp.path().to_path_buf(), &config))
+        .expect("reconcile should plan");
+
+    assert_eq!(plan.actions.len(), 2);
+    assert!(
+        plan.actions
+            .iter()
+            .all(|action| action.kind == ActionKind::KeepConfigured)
+    );
+}
+
+#[test]
+fn archive_target_uses_suffix_when_name_already_exists() {
+    let temp = TempConfigHome::new("archive_target_uses_suffix_when_name_already_exists");
+    temp.create_dir("old-tool");
+    fs::create_dir_all(temp.path().join("archive/old-tool")).expect("create archive collision");
+    let config = PolicyConfig::default();
+
+    let plan = plan_reconcile(ReconcileOptions::new(temp.path().to_path_buf(), &config))
+        .expect("reconcile should plan");
+
+    let target = plan.actions[0].target.as_ref().expect("archive target");
+    assert!(
+        target
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("old-tool-"))
+    );
+}
+
+#[test]
+fn applying_association_requires_config_path() {
+    let temp = TempConfigHome::new("applying_association_requires_config_path");
+    temp.create_dir("new-tool");
+    temp.create_bin("new-tool");
+    let config = PolicyConfig::default();
+    let options = ReconcileOptions::new(temp.path().to_path_buf(), &config)
+        .with_binary_dirs(vec![temp.bin_path()])
+        .apply();
+
+    let error = plan_reconcile(options).expect_err("missing config path should fail");
+
+    assert!(error.to_string().contains("config path"));
 }
 
 #[test]

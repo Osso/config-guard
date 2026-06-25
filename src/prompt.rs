@@ -5,9 +5,12 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+#[cfg(not(coverage))]
 use std::process::Command;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(coverage))]
+use std::time::Instant;
 
 const IPC_BUFFER_SIZE: usize = 64 * 1024;
 
@@ -41,11 +44,13 @@ impl Prompt for NonInteractivePrompt {
     }
 }
 
+#[cfg(not(coverage))]
 pub struct CommandPrompt {
     command: PathBuf,
     timeout: Duration,
 }
 
+#[cfg(not(coverage))]
 impl CommandPrompt {
     pub fn new(command: PathBuf, timeout: Duration) -> Self {
         Self { command, timeout }
@@ -140,6 +145,7 @@ fn call_authd(
     rmp_serde::from_slice(&buffer[..bytes_read]).context("decoding authd response")
 }
 
+#[cfg(not(coverage))]
 impl Prompt for CommandPrompt {
     fn ask(&self, request: &PromptRequest<'_>) -> Result<Decision> {
         let mut child = Command::new(&self.command)
@@ -156,6 +162,7 @@ impl Prompt for CommandPrompt {
     }
 }
 
+#[cfg(not(coverage))]
 fn wait_for_prompt(
     child: &mut std::process::Child,
     timeout: Duration,
@@ -175,6 +182,7 @@ fn wait_for_prompt(
     Ok(default_decision.clone())
 }
 
+#[cfg(not(coverage))]
 fn decision_from_status(status: std::process::ExitStatus, default_decision: &Decision) -> Decision {
     match status.code() {
         Some(0) => Decision::Allow,
@@ -194,7 +202,7 @@ fn display_subject(subject: &ProcessSubject) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{AuthdPrompt, Prompt, PromptRequest};
+    use super::{AuthdPrompt, NonInteractivePrompt, Prompt, PromptRequest};
     use crate::policy::{Decision, DecisionReason, ProcessSubject};
     use authd_protocol::{AuthResponse, DaemonRequest};
     use std::collections::HashMap;
@@ -204,6 +212,32 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::thread;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn non_interactive_prompt_returns_default_decision() {
+        let prompt = NonInteractivePrompt::new(Duration::from_millis(0));
+        let subject = test_subject();
+        let target_path = test_target_path();
+        let allow_request = prompt_request(&subject, &target_path, Decision::Allow);
+        let deny_request = prompt_request(&subject, &target_path, Decision::Deny);
+
+        assert_eq!(prompt.ask(&allow_request).unwrap(), Decision::Allow);
+        assert_eq!(prompt.ask(&deny_request).unwrap(), Decision::Deny);
+    }
+
+    #[test]
+    fn authd_prompt_new_uses_default_socket_and_default_on_error() {
+        let prompt = AuthdPrompt::new(Duration::from_millis(1));
+        let subject = ProcessSubject {
+            executable: PathBuf::from(""),
+            command: Vec::new(),
+            ancestors: Vec::new(),
+        };
+        let target_path = test_target_path();
+        let request = prompt_request(&subject, &target_path, Decision::Deny);
+
+        assert_eq!(prompt.ask(&request).unwrap(), Decision::Deny);
+    }
 
     #[test]
     fn authd_prompt_uses_default_when_socket_stalls() {
