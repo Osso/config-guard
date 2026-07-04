@@ -32,6 +32,9 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features
 
+      - name: Create test home
+        run: sudo mkdir -p /home/osso && sudo chown -R $USER:$USER /home/osso
+
       - name: Run tests
         run: cargo test --all-targets --all-features
         env:
