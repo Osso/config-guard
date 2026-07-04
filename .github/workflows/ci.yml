@@ -34,3 +34,5 @@ jobs:
 
       - name: Run tests
         run: cargo test --all-targets --all-features
+        env:
+          HOME: /home/osso
