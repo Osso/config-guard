@@ -39,3 +39,5 @@ jobs:
         run: cargo test --all-targets --all-features
         env:
           HOME: /home/osso
+          CARGO_HOME: /home/runner/.cargo
+          RUSTUP_HOME: /home/runner/.rustup
