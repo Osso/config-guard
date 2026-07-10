@@ -27,6 +27,7 @@ fn audit_logs_forbid_for_cross_owner_access() {
     let forbid = guard.wait_for_line("FORBID audit");
     assert!(forbid.contains("exe=cat"), "{forbid}");
     assert!(forbid.contains("reason=CrossOwnerRead"), "{forbid}");
+    guard.assert_no_line("FORBID audit", Duration::from_secs(1));
 }
 
 #[test]
@@ -247,6 +248,22 @@ impl ConfigGuardProcess {
 
             if Instant::now() >= deadline {
                 panic!("timed out waiting for {needle}; seen: {seen:?}");
+            }
+        }
+    }
+
+    fn assert_no_line(&mut self, needle: &str, duration: Duration) {
+        let deadline = Instant::now() + duration;
+
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match self.stderr_lines.recv_timeout(remaining) {
+                Ok(line) if line_matches(&line, needle) => {
+                    panic!("unexpected duplicate {needle} line: {line}")
+                }
+                Ok(_) => {}
+                Err(mpsc::RecvTimeoutError::Timeout) => return,
+                Err(_) => panic!("config-guard stderr closed while checking for {needle}"),
             }
         }
     }

@@ -2,7 +2,7 @@
 use super::{Mode, run};
 use super::{
     PromptDecisionCache, access_kind, child_directories, ensure_path_exists, has_graphical_session,
-    is_permission_event, resolve_policy_decision, response_code,
+    is_permission_event, resolve_policy_decision, response_code, watch_mask,
 };
 use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject};
 use crate::prompt::{Prompt, PromptRequest};
@@ -188,8 +188,11 @@ fn permission_event_helpers_map_masks_and_responses() {
     assert_eq!(access_kind(libc::FAN_CLOSE_WRITE), AccessKind::Write);
     assert_eq!(access_kind(libc::FAN_OPEN_PERM), AccessKind::Read);
     assert!(is_permission_event(libc::FAN_OPEN_PERM));
-    assert!(is_permission_event(libc::FAN_ACCESS_PERM));
+    assert!(!is_permission_event(libc::FAN_ACCESS_PERM));
     assert!(!is_permission_event(libc::FAN_CLOSE_WRITE));
+    assert_ne!(watch_mask() & libc::FAN_OPEN_PERM, 0);
+    assert_ne!(watch_mask() & libc::FAN_CLOSE_WRITE, 0);
+    assert_eq!(watch_mask() & libc::FAN_ACCESS_PERM, 0);
     assert_eq!(response_code(Decision::Allow), libc::FAN_ALLOW);
     assert_eq!(response_code(Decision::Deny), libc::FAN_DENY);
     assert_eq!(

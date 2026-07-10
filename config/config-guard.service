@@ -1,5 +1,5 @@
 [Unit]
-Description=Config Guard
+Description=Config Guard Audit Monitor
 After=local-fs.target
 
 [Service]

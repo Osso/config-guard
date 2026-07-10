@@ -32,8 +32,9 @@ Audit and guard runtime:
 - [x] Watch multiple roots from one process.
 - [x] Walk watched directory trees without following symlinked directories.
 - [x] Skip excluded directories when marking watched trees.
-- [ ] Keep long-running audit sampling quiet enough for normal journald review: repeated log lines should indicate real repeated policy decisions, not sampler churn.
-- [x] Let the systemd unit run guard mode when guard enforcement is intentionally enabled after audit burn-in.
+- [x] Evaluate reads once at open time so one file read produces one audit violation instead of repeated per-read syscall noise.
+- [x] Make deployment enable and restart the systemd unit in audit mode, then check its mode, active process, and boot enablement.
+- [ ] Support a documented manual systemd transition to guard mode and rollback after audit burn-in.
 
 Process identity:
 
@@ -79,7 +80,7 @@ CLI and deployment:
 - [ ] Require at least one `--path` for `audit` and `guard`.
 - [ ] Support `--exclude-path` for watched trees.
 - [ ] Support a configurable policy path through `--config`, falling back to the default user config path when present.
-- [ ] Deploy the release binary, local policy config, and systemd service through `deploy.sh`.
+- [x] Deploy the release binary, local policy config, and systemd service through `deploy.sh`.
 
 ## How it works
 
@@ -111,12 +112,13 @@ CLI and deployment:
 - `tests/learning.rs` - audit learning root selection and alias mapping.
 - `tests/reconcile.rs` - reconcile planning and apply behavior.
 - `tests/config_file.rs` - local `config/osso.toml` policy expectations.
+- `tests/deployment.rs` - static audit-mode unit and deploy activation-script contract.
 - `src/fanotify.rs` unit tests - directory walking and excluded-tree behavior.
 
 ## Known gaps (current cycle)
 
 - [ ] Add machine-checkable coverage for the CLI subcommand surface and default config-path behavior.
-- [ ] Add an installed-service smoke test or documented manual check for the audit-mode systemd unit.
+- [ ] Complete audit burn-in and review observed violations before enabling guard mode.
 - [ ] Add a policy review checklist for turning observed audit lines into durable allow rules, including the "no ad hoc cp allow" rule.
 
 ## Out of scope
@@ -124,4 +126,4 @@ CLI and deployment:
 - Kernel fanotify semantics beyond the event types Config Guard consumes.
 - Prompt UI design beyond the request/decision contract exposed through `prompt.rs`.
 - Full host policy for machines other than the local `osso` profile in `config/osso.toml`.
-- Boot-enabling the guard service; local guard mode is active, but service enablement remains an operational decision.
+- Automatically switching from audit mode to guard mode; enforcement remains a deliberate post-burn-in decision.

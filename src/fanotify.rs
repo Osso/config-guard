@@ -15,7 +15,7 @@ use libc::{
     AT_FDCWD, FAN_CLASS_CONTENT, FAN_CLOEXEC, FAN_EVENT_ON_CHILD, FAN_MARK_ADD, O_CLOEXEC,
     O_RDONLY, c_void, close, fanotify_response, read, write,
 };
-use libc::{FAN_ACCESS_PERM, FAN_ALLOW, FAN_CLOSE_WRITE, FAN_DENY, FAN_OPEN_PERM};
+use libc::{FAN_ALLOW, FAN_CLOSE_WRITE, FAN_DENY, FAN_OPEN_PERM};
 use std::collections::HashMap;
 #[cfg(not(coverage))]
 use std::ffi::CString;
@@ -121,7 +121,7 @@ fn create_fanotify_fd() -> Result<RawFd> {
 fn mark_path(fanotify_fd: RawFd, path: &Path) -> Result<()> {
     let path = CString::new(path.as_os_str().as_encoded_bytes())
         .context("watch path contains an interior nul byte")?;
-    let mask = FAN_OPEN_PERM | FAN_ACCESS_PERM | FAN_CLOSE_WRITE | FAN_EVENT_ON_CHILD;
+    let mask = watch_mask();
     let result =
         unsafe { libc::fanotify_mark(fanotify_fd, FAN_MARK_ADD, mask, AT_FDCWD, path.as_ptr()) };
 
@@ -558,6 +558,11 @@ fn event_target_path(event_fd: RawFd) -> Result<PathBuf> {
 }
 
 #[cfg(any(test, not(coverage)))]
+fn watch_mask() -> u64 {
+    FAN_OPEN_PERM | FAN_CLOSE_WRITE | FAN_EVENT_ON_CHILD
+}
+
+#[cfg(any(test, not(coverage)))]
 fn access_kind(mask: u64) -> AccessKind {
     if mask & FAN_CLOSE_WRITE != 0 {
         AccessKind::Write
@@ -568,7 +573,7 @@ fn access_kind(mask: u64) -> AccessKind {
 
 #[cfg(any(test, not(coverage)))]
 fn is_permission_event(mask: u64) -> bool {
-    mask & (FAN_OPEN_PERM | FAN_ACCESS_PERM) != 0
+    mask & FAN_OPEN_PERM != 0
 }
 
 #[cfg(any(test, not(coverage)))]
