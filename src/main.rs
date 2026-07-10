@@ -16,6 +16,7 @@ use config_guard::policy::{Decision, DecisionReason, PolicyConfig};
 use config_guard::prompt::{AuthdPrompt, Prompt, PromptRequest};
 #[cfg(not(coverage))]
 use config_guard::reconcile::{ActionKind, ReconcileOptions, plan_reconcile};
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -204,10 +205,12 @@ fn run_audit(
     let paths = canonicalize_scope_paths(paths, "watch")?;
     let excluded_paths = canonicalize_scope_paths(excluded_paths, "excluded")?;
     let home_dir = audit_home(&paths);
-    let learner = learn_output.map(|output_path| AuditLearner::new(output_path, home_dir.clone()));
+    let path_aliases = config_symlink_aliases(&home_dir);
+    let paths = expand_scope_with_aliases(paths, &path_aliases);
+    let learner = learn_output.map(|output_path| AuditLearner::new(output_path, home_dir));
     let config_path = resolve_config_path(config);
     let policy_config = load_policy_config(config_path)?;
-    let mut policy = StaticPolicy::new(policy_config, home_dir);
+    let mut policy = StaticPolicy::new(policy_config, path_aliases);
 
     config_guard::fanotify::run(
         &paths,
@@ -236,6 +239,22 @@ fn audit_home(paths: &[PathBuf]) -> PathBuf {
 fn canonicalize_scope_paths(paths: Vec<PathBuf>, kind: &str) -> Result<Vec<PathBuf>> {
     let current_dir = std::env::current_dir().context("reading current directory")?;
     canonicalize_scope_paths_in(paths, &current_dir, kind)
+}
+
+#[cfg(any(test, not(coverage)))]
+fn expand_scope_with_aliases(mut paths: Vec<PathBuf>, aliases: &[PathAlias]) -> Vec<PathBuf> {
+    let logical_roots = paths.clone();
+    let mut seen_paths = paths.iter().cloned().collect::<HashSet<_>>();
+    for alias in aliases {
+        let alias_is_watched = logical_roots
+            .iter()
+            .any(|root| alias.logical_root.starts_with(root));
+        if alias_is_watched && seen_paths.insert(alias.real_root.clone()) {
+            paths.push(alias.real_root.clone());
+        }
+    }
+
+    paths
 }
 
 #[cfg(any(test, not(coverage)))]
@@ -268,8 +287,11 @@ fn run_guard(
 ) -> Result<()> {
     let paths = canonicalize_scope_paths(paths, "watch")?;
     let excluded_paths = canonicalize_scope_paths(excluded_paths, "excluded")?;
+    let home_dir = audit_home(&paths);
+    let path_aliases = config_symlink_aliases(&home_dir);
+    let paths = expand_scope_with_aliases(paths, &path_aliases);
     let policy_config = load_policy_config(config)?;
-    let mut policy = StaticPolicy::new(policy_config, audit_home(&paths));
+    let mut policy = StaticPolicy::new(policy_config, path_aliases);
     let timeout = Duration::from_secs(timeout_seconds);
     let prompt = build_prompt(prompt_command, timeout);
 
@@ -292,9 +314,7 @@ struct StaticPolicy {
 
 #[cfg(not(coverage))]
 impl StaticPolicy {
-    fn new(config: PolicyConfig, home_dir: PathBuf) -> Self {
-        let path_aliases = config_symlink_aliases(&home_dir);
-
+    fn new(config: PolicyConfig, path_aliases: Vec<PathAlias>) -> Self {
         Self {
             policy: Policy::new(config),
             path_aliases,
@@ -464,8 +484,8 @@ mod tests {
     #[cfg(coverage)]
     use super::main;
     use super::{
-        canonicalize_scope_paths_in, default_config_path_in, load_policy_config,
-        logical_policy_path, parse_decision, parse_decision_reason,
+        canonicalize_scope_paths_in, default_config_path_in, expand_scope_with_aliases,
+        load_policy_config, logical_policy_path, parse_decision, parse_decision_reason,
     };
     use config_guard::learning::PathAlias;
     use config_guard::policy::{Decision, DecisionReason};
@@ -515,6 +535,35 @@ mod tests {
             canonicalize_scope_paths_in(vec![PathBuf::from("missing")], &base, "excluded").is_err()
         );
         let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn scope_expansion_includes_real_roots_for_symlinked_descendants() {
+        let paths = vec![
+            PathBuf::from("/home/osso/.config"),
+            PathBuf::from("/home/osso/.ssh"),
+        ];
+        let aliases = vec![
+            PathAlias {
+                real_root: PathBuf::from("/syncthing/Sync/Provisioning/config/gmail-cli"),
+                logical_root: PathBuf::from("/home/osso/.config/gmail-cli"),
+            },
+            PathAlias {
+                real_root: PathBuf::from("/unwatched/target"),
+                logical_root: PathBuf::from("/home/osso/Documents/unwatched"),
+            },
+        ];
+
+        let expanded = expand_scope_with_aliases(paths, &aliases);
+
+        assert_eq!(
+            expanded,
+            vec![
+                PathBuf::from("/home/osso/.config"),
+                PathBuf::from("/home/osso/.ssh"),
+                PathBuf::from("/syncthing/Sync/Provisioning/config/gmail-cli"),
+            ]
+        );
     }
 
     #[test]

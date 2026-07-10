@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::{BufRead, BufReader};
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
@@ -114,6 +115,52 @@ fn guard_reuses_prompt_answer_for_same_process_and_scope() {
         prompt_log.matches("--subject\ncat\n").count(),
         1,
         "same process and scope should prompt once: {prompt_log}"
+    );
+}
+
+#[test]
+#[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
+fn audit_watches_resolved_config_symlink_targets() {
+    require_root();
+    let fixture = RootFixture::new("audit_watches_resolved_config_symlink_targets");
+    let home = fixture.root.join("home");
+    let config_root = home.join(".config");
+    let logical_root = config_root.join("credential-tool");
+    let real_root = fixture.root.join("provisioning/credential-tool");
+    let real_probe = real_root.join("token.txt");
+    fs::create_dir_all(&config_root).expect("create logical config root");
+    fs::create_dir_all(&real_root).expect("create real config target");
+    fs::write(&real_probe, "secret\n").expect("write real config probe");
+    symlink(&real_root, &logical_root).expect("create config symlink");
+    fs::write(
+        fixture.config_path(),
+        format!(
+            "fail_open = true\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"credential-tool\"\nallowed_subjects = []\n",
+            logical_root.display()
+        ),
+    )
+    .expect("write symlink policy");
+    let mut guard = ConfigGuardProcess::start([
+        "audit",
+        "--path",
+        config_root.to_str().unwrap(),
+        "--config",
+        fixture.config_path().to_str().unwrap(),
+    ]);
+
+    guard.wait_for_line("watching ");
+    let output = run_with_timeout(
+        Command::new("cat").arg(logical_root.join("token.txt")),
+        TIMEOUT,
+        "cat symlinked config probe",
+    );
+
+    assert!(output.status.success(), "cat failed: {output:?}");
+    let forbid = guard.wait_for_line(&format!("path={}", real_probe.display()));
+    assert!(forbid.contains("exe=cat"), "{forbid}");
+    assert!(
+        forbid.contains(&format!("scope={}", logical_root.display())),
+        "{forbid}"
     );
 }
 

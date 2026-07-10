@@ -13,7 +13,17 @@ fn systemd_unit_runs_audit_mode_at_boot() {
     assert!(unit.contains("Type=notify"));
     assert!(unit.contains("NotifyAccess=main"));
     assert!(unit.contains("ExecStart=/home/osso/.cargo/bin/config-guard audit "));
+    assert!(unit.contains("--path /home/osso/.ssh"));
     assert!(unit.contains("WantedBy=multi-user.target"));
+}
+
+#[test]
+fn audit_docs_state_that_later_submounts_require_separate_marks() {
+    let docs = fs::read_to_string(project_file("docs/wiki/systems/config-guard.md"))
+        .expect("read system documentation");
+
+    assert!(docs.contains("mounts created after startup are not covered"));
+    assert!(docs.contains("restart Config Guard after adding a submount"));
 }
 
 #[test]

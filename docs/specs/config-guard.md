@@ -31,8 +31,12 @@ Audit and guard runtime:
 - [x] Do not cache explicit prompt denials as durable executable approvals.
 - [x] Watch multiple roots from one process.
 - [x] Canonicalize configured roots and exclusions before monitoring so scope filtering is independent of the service working directory and `..` spelling.
-- [x] In audit mode, use mount notifications plus root/exclusion filtering so existing and future descendants are covered without recursive-mark races.
-- [x] In audit mode, bind executable fallback identities to pidfd process generations and pair open/close identities by file object identity so PID reuse and renames cannot produce stale attribution.
+- [x] Expand configured roots with resolved direct symlink targets under `$HOME/.config` so logical configuration trees remain monitored across mount boundaries.
+- [x] Include `$HOME/.ssh` in the deployed audit scope.
+- [x] In audit mode, use mount notifications plus root/exclusion filtering so existing and future descendants on each marked mount are covered without recursive-mark races.
+- [x] Document that submounts created after startup require a Config Guard restart because `FAN_MARK_MOUNT` does not follow later mounts.
+- [x] Reject unsupported fanotify metadata versions instead of parsing an unknown ABI.
+- [x] In audit mode, bind executable fallback identities to pidfs-backed pidfd process generations and fail explicitly when the kernel cannot provide that invariant; pair open/close identities by file object identity so PID reuse and renames cannot produce stale attribution.
 - [x] In audit mode, preserve every read/write close classification present in each received close-event mask; the kernel may coalesce duplicate notifications, so log counts are not close-event or file-descriptor counts.
 - [x] In audit mode, filter events outside configured roots even when they share a monitored mount.
 - [x] In guard mode, walk watched directory trees without following symlinked directories.
@@ -40,7 +44,7 @@ Audit and guard runtime:
 - [x] Treat fanotify queue overflow or an invalid event descriptor as a fatal monitoring error instead of silently losing coverage.
 - [x] Evaluate policy with an unknown subject when process inspection fails instead of bypassing the policy.
 - [x] Make deployment enable and restart the systemd unit in audit mode, wait for systemd readiness, then check its mode, active process, restart count, and boot enablement.
-- [ ] Support a documented manual systemd transition to guard mode and rollback after audit burn-in.
+- [ ] Keep guard disabled until audit burn-in is complete; document the manual systemd transition and rollback, including its future-directory and post-write-only limitations.
 
 Process identity:
 
@@ -128,7 +132,7 @@ CLI and deployment:
 - `tests/deployment.rs` - static audit-mode unit and deploy activation-script contract.
 - `src/fanotify.rs` unit tests - mode masks, merged close classification, overflow handling, scope filtering, unknown-subject evaluation, directory walking, and excluded-tree behavior.
 - `src/fanotify/audit_identity.rs` unit tests - queued identities, bounded eviction, PID-generation replacement, take-on-close, and failed-open invalidation.
-- `src/fanotify/audit_process.rs` unit tests - exec-identity TTL, capacity eviction, dynamic-loader handling, and pidfd generation isolation.
+- `src/fanotify/audit_process.rs` unit tests - exec-identity TTL, capacity eviction, dynamic-loader handling, pidfs validation, and pidfd generation isolation.
 - `src/systemd_notify.rs` unit tests - readiness message delivery over the systemd notification socket.
 
 ## Known gaps (current cycle)

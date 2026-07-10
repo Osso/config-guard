@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 const DEFAULT_CAPACITY: usize = 4096;
 const DEFAULT_TTL: Duration = Duration::from_secs(30);
+const PID_FS_MAGIC: libc::c_long = 0x5049_4446;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(super) struct ProcessGeneration {
@@ -20,6 +21,8 @@ impl ProcessGeneration {
     }
 
     pub(super) fn from_pidfd(pidfd: RawFd) -> Result<Self> {
+        validate_pidfs(pidfd)?;
+
         let mut stat = MaybeUninit::<libc::stat>::uninit();
         if unsafe { libc::fstat(pidfd, stat.as_mut_ptr()) } < 0 {
             return Err(std::io::Error::last_os_error())
@@ -28,6 +31,25 @@ impl ProcessGeneration {
         let stat = unsafe { stat.assume_init() };
         Ok(Self::new(stat.st_dev, stat.st_ino))
     }
+}
+
+fn validate_pidfs(pidfd: RawFd) -> Result<()> {
+    let mut statfs = MaybeUninit::<libc::statfs>::uninit();
+    if unsafe { libc::fstatfs(pidfd, statfs.as_mut_ptr()) } < 0 {
+        return Err(std::io::Error::last_os_error()).context("reading pidfd filesystem type");
+    }
+    let statfs = unsafe { statfs.assume_init() };
+    ensure_pidfs_magic(statfs.f_type)
+}
+
+fn ensure_pidfs_magic(actual_magic: libc::c_long) -> Result<()> {
+    if actual_magic != PID_FS_MAGIC {
+        return Err(anyhow::anyhow!(
+            "pidfd is not backed by pidfs: filesystem magic={actual_magic:#x} expected={PID_FS_MAGIC:#x}"
+        ));
+    }
+
+    Ok(())
 }
 
 struct CachedIdentity {
@@ -155,7 +177,7 @@ fn is_dynamic_loader(identity: &ProcessIdentity) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{AuditProcessCache, ProcessGeneration};
+    use super::{AuditProcessCache, PID_FS_MAGIC, ProcessGeneration, ensure_pidfs_magic};
     use crate::process::ProcessIdentity;
     use std::path::PathBuf;
     use std::process::Command;
@@ -167,6 +189,13 @@ mod tests {
 
     fn generation(inode: u64) -> ProcessGeneration {
         ProcessGeneration::new(6, inode)
+    }
+
+    #[test]
+    fn rejects_pidfds_not_backed_by_pidfs() {
+        let error = ensure_pidfs_magic(PID_FS_MAGIC + 1).expect_err("reject non-pidfs fd");
+
+        assert!(error.to_string().contains("pidfd is not backed by pidfs"));
     }
 
     #[test]

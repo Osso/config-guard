@@ -207,6 +207,7 @@ fn handle_event_buffer(
 
     while offset + mem::size_of::<fanotify_event_metadata>() <= buffer.len() {
         let metadata = event::read_metadata(buffer, offset);
+        event::validate_metadata_version(&metadata)?;
 
         if metadata.event_len == 0 {
             break;

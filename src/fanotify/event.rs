@@ -28,6 +28,18 @@ pub(super) fn read_metadata(buffer: &[u8], offset: usize) -> fanotify_event_meta
     unsafe { std::ptr::read_unaligned(buffer[offset..].as_ptr().cast()) }
 }
 
+pub(super) fn validate_metadata_version(metadata: &fanotify_event_metadata) -> Result<()> {
+    if metadata.vers != libc::FANOTIFY_METADATA_VERSION {
+        return Err(anyhow!(
+            "unsupported fanotify metadata version: kernel={} expected={}",
+            metadata.vers,
+            libc::FANOTIFY_METADATA_VERSION
+        ));
+    }
+
+    Ok(())
+}
+
 pub(super) fn process_generation(
     event: &[u8],
     metadata: &fanotify_event_metadata,
@@ -65,17 +77,18 @@ fn generation_from_pidfd(pid: i32, pidfd: RawFd) -> Result<Option<ProcessGenerat
         return Ok(None);
     }
 
-    let generation = match ProcessGeneration::from_pidfd(pidfd) {
-        Ok(generation) => Some(generation),
-        Err(error) => {
-            eprintln!(
-                "IDENTITY process generation unavailable pid={pid} reason={error:#}; executable fallback disabled"
-            );
-            None
+    let generation = ProcessGeneration::from_pidfd(pidfd);
+    let close_result = close_descriptor(pidfd);
+    match generation {
+        Ok(generation) => {
+            close_result?;
+            Ok(Some(generation))
         }
-    };
-    close_descriptor(pidfd)?;
-    Ok(generation)
+        Err(error) => {
+            close_result?;
+            Err(error).with_context(|| format!("validating pidfd for process {pid}"))
+        }
+    }
 }
 
 pub(super) fn target_path(event_fd: RawFd) -> Result<PathBuf> {
@@ -102,9 +115,11 @@ pub(super) fn close_descriptor(event_fd: RawFd) -> Result<()> {
 mod tests {
     use super::{
         FAN_EVENT_INFO_TYPE_PIDFD, FanotifyEventInfoHeader, FanotifyEventInfoPidfd,
-        process_generation,
+        process_generation, validate_metadata_version,
     };
     use crate::fanotify::ProcessGeneration;
+    use std::fs::File;
+    use std::os::fd::IntoRawFd;
     use std::{mem, slice};
 
     fn pidfd_event(pid: i32, pidfd: i32) -> (Vec<u8>, libc::fanotify_event_metadata) {
@@ -138,6 +153,20 @@ mod tests {
     }
 
     #[test]
+    fn rejects_unsupported_fanotify_metadata_versions() {
+        let (_, mut metadata) = pidfd_event(42, -1);
+        metadata.vers = libc::FANOTIFY_METADATA_VERSION + 1;
+
+        let error = validate_metadata_version(&metadata).expect_err("reject metadata version");
+
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported fanotify metadata version")
+        );
+    }
+
+    #[test]
     fn extracts_process_generation_from_pidfd_information() {
         let first = unsafe { libc::syscall(libc::SYS_pidfd_open, libc::getpid(), 0) as i32 };
         let second = unsafe { libc::syscall(libc::SYS_pidfd_open, libc::getpid(), 0) as i32 };
@@ -149,6 +178,18 @@ mod tests {
         let actual = process_generation(&event, &metadata).expect("parse pidfd information");
 
         assert_eq!(actual, Some(expected));
+    }
+
+    #[test]
+    fn rejects_process_generation_descriptors_not_backed_by_pidfs() {
+        let regular_fd = File::open("/dev/null")
+            .expect("open regular descriptor")
+            .into_raw_fd();
+        let (event, metadata) = pidfd_event(42, regular_fd);
+
+        let error = process_generation(&event, &metadata).expect_err("reject non-pidfs fd");
+
+        assert!(format!("{error:#}").contains("pidfd is not backed by pidfs"));
     }
 
     #[test]
