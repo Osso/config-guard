@@ -30,10 +30,16 @@ Audit and guard runtime:
 - [x] Reuse an approved prompt answer for the same executable, access kind, reason, and policy scope.
 - [x] Do not cache explicit prompt denials as durable executable approvals.
 - [x] Watch multiple roots from one process.
-- [x] Walk watched directory trees without following symlinked directories.
-- [x] Skip excluded directories when marking watched trees.
-- [x] Evaluate reads once at open time so one file read produces one audit violation instead of repeated per-read syscall noise.
-- [x] Make deployment enable and restart the systemd unit in audit mode, then check its mode, active process, and boot enablement.
+- [x] Canonicalize configured roots and exclusions before monitoring so scope filtering is independent of the service working directory and `..` spelling.
+- [x] In audit mode, use mount notifications plus root/exclusion filtering so existing and future descendants are covered without recursive-mark races.
+- [x] In audit mode, bind executable fallback identities to pidfd process generations and pair open/close identities by file object identity so PID reuse and renames cannot produce stale attribution.
+- [x] In audit mode, preserve every read/write close classification present in each received close-event mask; the kernel may coalesce duplicate notifications, so log counts are not close-event or file-descriptor counts.
+- [x] In audit mode, filter events outside configured roots even when they share a monitored mount.
+- [x] In guard mode, walk watched directory trees without following symlinked directories.
+- [x] In guard mode, skip excluded directories when marking watched trees.
+- [x] Treat fanotify queue overflow or an invalid event descriptor as a fatal monitoring error instead of silently losing coverage.
+- [x] Evaluate policy with an unknown subject when process inspection fails instead of bypassing the policy.
+- [x] Make deployment enable and restart the systemd unit in audit mode, wait for systemd readiness, then check its mode, active process, restart count, and boot enablement.
 - [ ] Support a documented manual systemd transition to guard mode and rollback after audit burn-in.
 
 Process identity:
@@ -45,6 +51,7 @@ Process identity:
 - [x] Parse process start time and parent PID from `/proc/<pid>/stat` when the command name contains spaces.
 - [x] Reject malformed `/proc/<pid>/stat` values without a closing command name.
 - [x] Use argv0 as the subject when the executable symlink cannot be read.
+- [x] Construct an explicit unknown subject when process inspection cannot produce an identity.
 
 Learning:
 
@@ -76,10 +83,10 @@ Local policy file:
 
 CLI and deployment:
 
-- [ ] Provide `audit`, `guard`, `reconcile`, and `test-prompt` subcommands.
-- [ ] Require at least one `--path` for `audit` and `guard`.
-- [ ] Support `--exclude-path` for watched trees.
-- [ ] Support a configurable policy path through `--config`, falling back to the default user config path when present.
+- [x] Provide `audit`, `guard`, `reconcile`, and `test-prompt` subcommands.
+- [x] Require at least one `--path` for `audit` and `guard`.
+- [x] Support `--exclude-path` for watched trees.
+- [x] Support a configurable policy path through `--config`, falling back to the default user config path when present.
 - [x] Deploy the release binary, local policy config, and systemd service through `deploy.sh`.
 
 ## How it works
@@ -92,10 +99,16 @@ CLI and deployment:
 ## Implementation inventory
 
 - `src/main.rs` - CLI command parsing and command wiring for audit, guard, reconcile, and prompt testing.
-- `src/fanotify.rs` - fanotify setup, tree marking, event handling, audit logging, prompt resolution, and guard responses.
+- `src/fanotify.rs` - mode-specific fanotify setup, mount/tree marking, scope filtering, overflow handling, prompt resolution, and guard responses.
+- `src/fanotify/audit.rs` - audit open-identity capture, close-event classification, policy evaluation, learning, and logging orchestration.
+- `src/fanotify/audit_identity.rs` - bounded PID/object-identity queues bridging audit open and close events across path renames.
+- `src/fanotify/audit_process.rs` - bounded TTL cache of executable identities keyed by pidfd process generation for processes too short-lived for procfs inspection.
+- `src/fanotify/event.rs` - fanotify metadata parsing, pidfd process-generation extraction, event target/object identity, and descriptor cleanup.
+- `src/fanotify/watch.rs` - audit mount marks and guard tree-mark installation.
 - `src/policy.rs` - policy config types, subject matching, ownership checks, sensitive-path checks, shared-path checks, and prompt decisions.
 - `src/process.rs` - `/proc` process inspection, process subject extraction, command parsing, ancestor discovery, and Wayland environment reads.
 - `src/prompt.rs` - authd and command prompt adapters plus timeout and exit-status decision mapping.
+- `src/systemd_notify.rs` - systemd readiness notification transport and socket addressing.
 - `src/learning.rs` - audit observation aggregation and learned TOML output for candidate owned paths.
 - `src/reconcile.rs` - config-home inventory, association/archive planning, and apply-mode config/archive updates.
 - `src/lib.rs` - public module exports for integration tests.
@@ -113,7 +126,10 @@ CLI and deployment:
 - `tests/reconcile.rs` - reconcile planning and apply behavior.
 - `tests/config_file.rs` - local `config/osso.toml` policy expectations.
 - `tests/deployment.rs` - static audit-mode unit and deploy activation-script contract.
-- `src/fanotify.rs` unit tests - directory walking and excluded-tree behavior.
+- `src/fanotify.rs` unit tests - mode masks, merged close classification, overflow handling, scope filtering, unknown-subject evaluation, directory walking, and excluded-tree behavior.
+- `src/fanotify/audit_identity.rs` unit tests - queued identities, bounded eviction, PID-generation replacement, take-on-close, and failed-open invalidation.
+- `src/fanotify/audit_process.rs` unit tests - exec-identity TTL, capacity eviction, dynamic-loader handling, and pidfd generation isolation.
+- `src/systemd_notify.rs` unit tests - readiness message delivery over the systemd notification socket.
 
 ## Known gaps (current cycle)
 
@@ -127,3 +143,5 @@ CLI and deployment:
 - Prompt UI design beyond the request/decision contract exposed through `prompt.rs`.
 - Full host policy for machines other than the local `osso` profile in `config/osso.toml`.
 - Automatically switching from audit mode to guard mode; enforcement remains a deliberate post-burn-in decision.
+- Race-free coverage of directories created after guard-mode startup; guard currently uses inode tree marks.
+- Pre-write denial based on write-specific policy; `FAN_CLOSE_WRITE` reports writes only after they complete.

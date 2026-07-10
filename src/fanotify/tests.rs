@@ -1,12 +1,21 @@
+#[cfg(not(coverage))]
+use super::AccessPolicy;
+#[cfg(not(coverage))]
+use super::audit::{access_kinds as audit_access_kinds, decide_event as decide_audit_event};
 #[cfg(coverage)]
 use super::{Mode, run};
 use super::{
-    PromptDecisionCache, access_kind, child_directories, ensure_path_exists, has_graphical_session,
-    is_permission_event, resolve_policy_decision, response_code, watch_mask,
+    PromptDecisionCache, access_kind, audit_watch_mask, child_directories, ensure_event_descriptor,
+    ensure_path_exists, guard_watch_mask, has_graphical_session, is_permission_event,
+    is_watched_path, resolve_policy_decision, response_code,
 };
 use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject};
+#[cfg(not(coverage))]
+use crate::process::ProcessIdentity;
 use crate::prompt::{Prompt, PromptRequest};
 use std::cell::Cell;
+#[cfg(not(coverage))]
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::os::unix::fs::symlink;
@@ -32,6 +41,24 @@ impl super::AccessPolicy for PanicPolicy {
         _access: AccessKind,
     ) -> anyhow::Result<Decision> {
         panic!("policy must not be invoked by coverage run stub");
+    }
+}
+
+#[cfg(not(coverage))]
+struct RecordingPolicy {
+    executable: RefCell<Option<PathBuf>>,
+}
+
+#[cfg(not(coverage))]
+impl AccessPolicy for RecordingPolicy {
+    fn decide(
+        &mut self,
+        subject: &ProcessSubject,
+        _target_path: &Path,
+        _access: AccessKind,
+    ) -> anyhow::Result<Decision> {
+        self.executable.replace(Some(subject.executable.clone()));
+        Ok(Decision::Allow)
     }
 }
 
@@ -97,6 +124,33 @@ fn resolve_cat_prompt(
         policy_decision,
     )
     .expect("resolve decision")
+}
+
+#[cfg(not(coverage))]
+#[test]
+fn audit_evaluates_unknown_processes_instead_of_bypassing_policy() {
+    let process = ProcessIdentity::unknown(42);
+    let mut recording_policy = RecordingPolicy {
+        executable: RefCell::new(None),
+    };
+    let mut policy: Option<&mut dyn AccessPolicy> = Some(&mut recording_policy);
+    let mut learner = None;
+
+    let decision = decide_audit_event(
+        42,
+        &process,
+        Path::new("/etc/config-guard/config.toml"),
+        AccessKind::Read,
+        &mut learner,
+        &mut policy,
+    )
+    .expect("evaluate unknown process");
+
+    assert_eq!(decision, Decision::Allow);
+    assert_eq!(
+        recording_policy.executable.into_inner(),
+        Some(PathBuf::from("unknown"))
+    );
 }
 
 #[test]
@@ -186,13 +240,22 @@ fn resolve_does_not_cache_denials_for_binary() {
 #[test]
 fn permission_event_helpers_map_masks_and_responses() {
     assert_eq!(access_kind(libc::FAN_CLOSE_WRITE), AccessKind::Write);
+    assert_eq!(access_kind(libc::FAN_CLOSE_NOWRITE), AccessKind::Read);
     assert_eq!(access_kind(libc::FAN_OPEN_PERM), AccessKind::Read);
     assert!(is_permission_event(libc::FAN_OPEN_PERM));
     assert!(!is_permission_event(libc::FAN_ACCESS_PERM));
     assert!(!is_permission_event(libc::FAN_CLOSE_WRITE));
-    assert_ne!(watch_mask() & libc::FAN_OPEN_PERM, 0);
-    assert_ne!(watch_mask() & libc::FAN_CLOSE_WRITE, 0);
-    assert_eq!(watch_mask() & libc::FAN_ACCESS_PERM, 0);
+    assert_eq!(
+        audit_watch_mask(),
+        libc::FAN_OPEN | libc::FAN_OPEN_EXEC | libc::FAN_CLOSE_NOWRITE | libc::FAN_CLOSE_WRITE
+    );
+    assert_ne!(guard_watch_mask() & libc::FAN_OPEN_PERM, 0);
+    assert_ne!(guard_watch_mask() & libc::FAN_CLOSE_WRITE, 0);
+    assert_eq!(guard_watch_mask() & libc::FAN_ACCESS_PERM, 0);
+    assert!(
+        super::PromptDecisionKey::new(None, AccessKind::Read, &prompt_decision("/etc/authd"))
+            .is_none()
+    );
     assert_eq!(response_code(Decision::Allow), libc::FAN_ALLOW);
     assert_eq!(response_code(Decision::Deny), libc::FAN_DENY);
     assert_eq!(
@@ -203,6 +266,60 @@ fn permission_event_helpers_map_masks_and_responses() {
         }),
         libc::FAN_ALLOW
     );
+}
+
+#[cfg(not(coverage))]
+#[test]
+fn merged_audit_masks_preserve_both_read_and_write_classifications() {
+    assert_eq!(
+        audit_access_kinds(libc::FAN_CLOSE_NOWRITE | libc::FAN_CLOSE_WRITE),
+        vec![AccessKind::Read, AccessKind::Write]
+    );
+    assert!(audit_access_kinds(libc::FAN_OPEN).is_empty());
+}
+
+#[test]
+fn queue_overflow_and_invalid_descriptors_are_errors() {
+    let overflow = ensure_event_descriptor(libc::FAN_Q_OVERFLOW, libc::FAN_NOFD)
+        .expect_err("queue overflow must fail");
+    assert!(overflow.to_string().contains("queue overflow"));
+
+    let invalid =
+        ensure_event_descriptor(0, libc::FAN_NOFD).expect_err("invalid descriptor must fail");
+    assert!(
+        invalid
+            .to_string()
+            .contains("invalid fanotify event descriptor")
+    );
+
+    assert!(ensure_event_descriptor(libc::FAN_CLOSE_WRITE, 4).is_ok());
+}
+
+#[test]
+fn watch_scope_includes_roots_and_excludes_subtrees() {
+    let roots = vec![PathBuf::from("/home/osso/.config"), PathBuf::from("/etc")];
+    let excluded = vec![PathBuf::from("/home/osso/.config/archive")];
+
+    assert!(is_watched_path(
+        Path::new("/home/osso/.config/new-app/settings.toml"),
+        &roots,
+        &excluded
+    ));
+    assert!(is_watched_path(
+        Path::new("/etc/systemd/system/example.service"),
+        &roots,
+        &excluded
+    ));
+    assert!(!is_watched_path(
+        Path::new("/home/osso/.config/archive/old.toml"),
+        &roots,
+        &excluded
+    ));
+    assert!(!is_watched_path(
+        Path::new("/home/osso/Documents/note.txt"),
+        &roots,
+        &excluded
+    ));
 }
 
 #[test]

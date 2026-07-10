@@ -10,6 +10,8 @@ fn systemd_unit_runs_audit_mode_at_boot() {
     let unit =
         fs::read_to_string(project_file("config/config-guard.service")).expect("read systemd unit");
 
+    assert!(unit.contains("Type=notify"));
+    assert!(unit.contains("NotifyAccess=main"));
     assert!(unit.contains("ExecStart=/home/osso/.cargo/bin/config-guard audit "));
     assert!(unit.contains("WantedBy=multi-user.target"));
 }
@@ -22,14 +24,22 @@ fn deploy_defines_audit_service_activation_contract() {
     assert!(!deploy.contains("XDG_CONFIG_HOME"));
     assert!(deploy.contains("cargo install --force --path . --root \"${HOME}/.cargo\""));
     assert!(deploy.contains("install -Dm600 \"config/osso.toml\""));
-    assert!(deploy.contains("authsudo install -Dm644 \"config/config-guard.service\""));
-    assert!(deploy.contains("authsudo systemctl daemon-reload"));
-    assert!(deploy.contains("authsudo systemctl enable config-guard.service"));
-    assert!(deploy.contains("authsudo systemctl restart config-guard.service"));
+    assert_eq!(deploy.matches("authsudo ").count(), 1);
+    assert!(deploy.contains("authsudo \"${project_dir}/deploy.sh\" --install-system"));
+    assert!(!deploy.contains("authsudo \"$0\""));
+    assert!(deploy.contains("local service_source=\"${project_dir}/config/config-guard.service\""));
+    assert!(deploy.contains("install -Dm644 \"${service_source}\" \"${service_target}\""));
+    assert!(!deploy.contains("SERVICE_SOURCE"));
+    assert!(!deploy.contains("SERVICE_TARGET"));
+    assert!(deploy.contains("systemctl daemon-reload"));
+    assert!(deploy.contains("systemctl enable config-guard.service"));
+    assert!(deploy.contains("systemctl restart config-guard.service"));
     assert!(deploy.contains("systemctl is-enabled --quiet config-guard.service"));
-    assert!(deploy.contains("sleep 3"));
+    assert!(deploy.contains("sleep 6"));
     assert!(deploy.contains("systemctl is-active --quiet config-guard.service"));
     assert!(deploy.contains("--property=ExecStart --value"));
     assert!(deploy.contains("--property=MainPID --value"));
+    assert!(deploy.contains("--property=Type --value"));
+    assert!(deploy.contains("--property=NRestarts --value"));
     assert!(deploy.contains("verify_audit_service"));
 }

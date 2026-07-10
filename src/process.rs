@@ -27,6 +27,28 @@ pub struct ProcessIdentity {
 }
 
 impl ProcessIdentity {
+    pub fn from_executable(pid: i32, executable: PathBuf) -> Self {
+        Self {
+            pid,
+            command: vec![executable.display().to_string()],
+            executable: Some(executable),
+            cwd: None,
+            start_time_ticks: None,
+            ancestors: Vec::new(),
+        }
+    }
+
+    pub fn unknown(pid: i32) -> Self {
+        Self {
+            pid,
+            executable: None,
+            command: Vec::new(),
+            cwd: None,
+            start_time_ticks: None,
+            ancestors: Vec::new(),
+        }
+    }
+
     pub fn subject(&self) -> ProcessSubject {
         let executable = self
             .executable
@@ -232,9 +254,9 @@ fn read_ancestor_executables(pid: i32) -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use super::{ProcessIdentity, parse_environ, strip_deleted_suffix};
     #[cfg(coverage)]
     use super::{inspect_process, read_wayland_env};
-    use super::{parse_environ, strip_deleted_suffix};
     use std::path::PathBuf;
 
     #[test]
@@ -273,6 +295,28 @@ mod tests {
         assert_eq!(env.get("EMPTY").map(String::as_str), Some(""));
         assert!(!env.contains_key("NO_EQUALS"));
         assert!(!env.contains_key("BAD"));
+    }
+
+    #[test]
+    fn executable_identity_produces_a_stable_policy_subject() {
+        let identity = ProcessIdentity::from_executable(41, PathBuf::from("/usr/bin/head"));
+
+        assert_eq!(identity.pid, 41);
+        assert_eq!(
+            identity.subject().executable,
+            PathBuf::from("/usr/bin/head")
+        );
+        assert_eq!(identity.command, vec!["/usr/bin/head".to_string()]);
+    }
+
+    #[test]
+    fn unknown_identity_produces_an_unknown_policy_subject() {
+        let identity = ProcessIdentity::unknown(42);
+
+        assert_eq!(identity.pid, 42);
+        assert_eq!(identity.subject().executable, PathBuf::from("unknown"));
+        assert!(identity.command.is_empty());
+        assert!(identity.ancestors.is_empty());
     }
 
     #[cfg(coverage)]

@@ -1,33 +1,67 @@
+#[cfg(not(coverage))]
+mod audit;
+#[cfg(any(test, not(coverage)))]
+mod audit_identity;
+#[cfg(any(test, not(coverage)))]
+mod audit_process;
+#[cfg(not(coverage))]
+mod event;
+#[cfg(any(test, not(coverage)))]
+mod watch;
+
 use crate::learning::AuditLearner;
+#[cfg(any(test, not(coverage)))]
+use crate::policy::DecisionReason;
 #[cfg(not(coverage))]
 use crate::policy::executable_label;
-use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject};
+use crate::policy::{AccessKind, Decision, ProcessSubject};
 #[cfg(not(coverage))]
 use crate::process::ProcessIdentity;
 #[cfg(not(coverage))]
 use crate::process::{inspect_process, read_wayland_env};
-use crate::prompt::{Prompt, PromptRequest};
-use anyhow::{Context, Result, anyhow};
+use crate::prompt::Prompt;
+#[cfg(any(test, not(coverage)))]
+use crate::prompt::PromptRequest;
+#[cfg(not(coverage))]
+use anyhow::Context;
+use anyhow::{Result, anyhow};
+#[cfg(not(coverage))]
+use audit_identity::{AuditIdentityCache, AuditObjectId};
+#[cfg(not(coverage))]
+use audit_process::{AuditProcessCache, ProcessGeneration};
 #[cfg(not(coverage))]
 use libc::fanotify_event_metadata;
+#[cfg(any(test, not(coverage)))]
+use libc::{
+    FAN_ALLOW, FAN_CLOSE_NOWRITE, FAN_CLOSE_WRITE, FAN_DENY, FAN_EVENT_ON_CHILD, FAN_NOFD,
+    FAN_OPEN, FAN_OPEN_EXEC, FAN_OPEN_PERM, FAN_Q_OVERFLOW,
+};
 #[cfg(not(coverage))]
 use libc::{
-    AT_FDCWD, FAN_CLASS_CONTENT, FAN_CLOEXEC, FAN_EVENT_ON_CHILD, FAN_MARK_ADD, O_CLOEXEC,
-    O_RDONLY, c_void, close, fanotify_response, read, write,
+    FAN_CLASS_CONTENT, FAN_CLASS_NOTIF, FAN_CLOEXEC, FAN_UNLIMITED_QUEUE, O_CLOEXEC, O_RDONLY,
+    c_void, fanotify_response, read, write,
 };
-use libc::{FAN_ALLOW, FAN_CLOSE_WRITE, FAN_DENY, FAN_OPEN_PERM};
+#[cfg(any(test, not(coverage)))]
 use std::collections::HashMap;
 #[cfg(not(coverage))]
-use std::ffi::CString;
-use std::fs;
-#[cfg(not(coverage))]
 use std::mem;
-#[cfg(not(coverage))]
+#[cfg(any(test, not(coverage)))]
 use std::os::fd::RawFd;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use watch::child_directories;
 
 #[cfg(not(coverage))]
 const EVENT_BUFFER_SIZE: usize = 8192;
+#[cfg(not(coverage))]
+const FAN_REPORT_PIDFD: u32 = 0x0000_0080;
+
+#[cfg(not(coverage))]
+#[derive(Default)]
+struct EventRuntime {
+    audit_identities: AuditIdentityCache,
+    audit_processes: AuditProcessCache,
+}
 
 pub enum Mode<'a> {
     Audit {
@@ -52,9 +86,11 @@ pub trait AccessPolicy {
 
 #[derive(Default)]
 pub struct PromptDecisionCache {
+    #[cfg(any(test, not(coverage)))]
     decisions: HashMap<PromptDecisionKey, Decision>,
 }
 
+#[cfg(any(test, not(coverage)))]
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct PromptDecisionKey {
     executable: Option<PathBuf>,
@@ -81,18 +117,15 @@ impl PromptDecisionCache {
 
 #[cfg(not(coverage))]
 pub fn run(paths: &[PathBuf], excluded_paths: &[PathBuf], mode: Mode<'_>) -> Result<()> {
-    let fanotify_fd = create_fanotify_fd()?;
-    let marked_paths = mark_path_trees(fanotify_fd, paths, excluded_paths)?;
-    let watch_list = paths
-        .iter()
-        .map(|path| path.display().to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-    eprintln!("watching {watch_list} ({marked_paths} directories marked)");
+    let fanotify_fd = create_fanotify_fd(&mode)?;
+    let status = watch::install(fanotify_fd, paths, excluded_paths, &mode)?;
+    eprintln!("{status}");
+    crate::systemd_notify::notify_ready(std::env::var_os("NOTIFY_SOCKET").as_deref(), &status)?;
     let mut mode = mode;
+    let mut runtime = EventRuntime::default();
 
     loop {
-        read_events(fanotify_fd, &mut mode)?;
+        read_events(fanotify_fd, paths, excluded_paths, &mut mode, &mut runtime)?;
     }
 }
 
@@ -105,89 +138,22 @@ pub fn run(paths: &[PathBuf], _excluded_paths: &[PathBuf], _mode: Mode<'_>) -> R
 }
 
 #[cfg(not(coverage))]
-fn create_fanotify_fd() -> Result<RawFd> {
+fn create_fanotify_fd(mode: &Mode<'_>) -> Result<RawFd> {
     let event_flags = (O_RDONLY | O_CLOEXEC) as u32;
-    let fd = unsafe { libc::fanotify_init(FAN_CLASS_CONTENT | FAN_CLOEXEC, event_flags) };
+    let init_flags = match mode {
+        Mode::Audit { .. } => {
+            FAN_CLASS_NOTIF | FAN_CLOEXEC | FAN_UNLIMITED_QUEUE | FAN_REPORT_PIDFD
+        }
+        Mode::Guard { .. } => FAN_CLASS_CONTENT | FAN_CLOEXEC,
+    };
+    let fd = unsafe { libc::fanotify_init(init_flags, event_flags) };
 
     if fd < 0 {
         return Err(std::io::Error::last_os_error())
-            .context("fanotify_init failed; permission events usually require CAP_SYS_ADMIN");
+            .context("fanotify_init failed; monitoring usually requires CAP_SYS_ADMIN");
     }
 
     Ok(fd)
-}
-
-#[cfg(not(coverage))]
-fn mark_path(fanotify_fd: RawFd, path: &Path) -> Result<()> {
-    let path = CString::new(path.as_os_str().as_encoded_bytes())
-        .context("watch path contains an interior nul byte")?;
-    let mask = watch_mask();
-    let result =
-        unsafe { libc::fanotify_mark(fanotify_fd, FAN_MARK_ADD, mask, AT_FDCWD, path.as_ptr()) };
-
-    if result < 0 {
-        return Err(std::io::Error::last_os_error()).context("fanotify_mark failed");
-    }
-
-    Ok(())
-}
-
-#[cfg(not(coverage))]
-fn mark_path_trees(
-    fanotify_fd: RawFd,
-    paths: &[PathBuf],
-    excluded_paths: &[PathBuf],
-) -> Result<usize> {
-    paths
-        .iter()
-        .filter(|path| !is_excluded(path, excluded_paths))
-        .map(|path| mark_path_tree(fanotify_fd, path, excluded_paths))
-        .try_fold(0, |marked_paths, result| {
-            result.map(|path_count| marked_paths + path_count)
-        })
-}
-
-#[cfg(not(coverage))]
-fn mark_path_tree(fanotify_fd: RawFd, path: &Path, excluded_paths: &[PathBuf]) -> Result<usize> {
-    if !path.is_dir() {
-        mark_path(fanotify_fd, path)?;
-        return Ok(1);
-    }
-
-    let mut marked_paths = 0;
-    let mut pending_paths = vec![path.to_path_buf()];
-
-    while let Some(current_path) = pending_paths.pop() {
-        mark_path(fanotify_fd, &current_path)
-            .with_context(|| format!("marking {}", current_path.display()))?;
-        marked_paths += 1;
-
-        for child_path in child_directories(&current_path, excluded_paths)? {
-            pending_paths.push(child_path);
-        }
-    }
-
-    Ok(marked_paths)
-}
-
-#[cfg(any(test, not(coverage)))]
-fn child_directories(path: &Path, excluded_paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
-    let mut directories = Vec::new();
-
-    for entry in fs::read_dir(path).with_context(|| format!("reading {}", path.display()))? {
-        let entry = entry.with_context(|| format!("reading entry under {}", path.display()))?;
-        let file_type = entry
-            .file_type()
-            .with_context(|| format!("reading file type for {}", entry.path().display()))?;
-
-        let child_path = entry.path();
-
-        if file_type.is_dir() && !is_excluded(&child_path, excluded_paths) {
-            directories.push(child_path);
-        }
-    }
-
-    Ok(directories)
 }
 
 #[cfg(any(test, not(coverage)))]
@@ -198,7 +164,13 @@ fn is_excluded(path: &Path, excluded_paths: &[PathBuf]) -> bool {
 }
 
 #[cfg(not(coverage))]
-fn read_events(fanotify_fd: RawFd, mode: &mut Mode<'_>) -> Result<()> {
+fn read_events(
+    fanotify_fd: RawFd,
+    paths: &[PathBuf],
+    excluded_paths: &[PathBuf],
+    mode: &mut Mode<'_>,
+    runtime: &mut EventRuntime,
+) -> Result<()> {
     let mut buffer = [0u8; EVENT_BUFFER_SIZE];
     let bytes_read = unsafe {
         read(
@@ -212,118 +184,175 @@ fn read_events(fanotify_fd: RawFd, mode: &mut Mode<'_>) -> Result<()> {
         return Err(std::io::Error::last_os_error()).context("reading fanotify events failed");
     }
 
-    handle_event_buffer(fanotify_fd, &buffer[..bytes_read as usize], mode)
+    handle_event_buffer(
+        fanotify_fd,
+        &buffer[..bytes_read as usize],
+        paths,
+        excluded_paths,
+        mode,
+        runtime,
+    )
 }
 
 #[cfg(not(coverage))]
-fn handle_event_buffer(fanotify_fd: RawFd, buffer: &[u8], mode: &mut Mode<'_>) -> Result<()> {
+fn handle_event_buffer(
+    fanotify_fd: RawFd,
+    buffer: &[u8],
+    paths: &[PathBuf],
+    excluded_paths: &[PathBuf],
+    mode: &mut Mode<'_>,
+    runtime: &mut EventRuntime,
+) -> Result<()> {
     let mut offset = 0;
 
     while offset + mem::size_of::<fanotify_event_metadata>() <= buffer.len() {
-        let metadata = read_metadata(buffer, offset);
+        let metadata = event::read_metadata(buffer, offset);
 
         if metadata.event_len == 0 {
             break;
         }
 
-        handle_event(fanotify_fd, &metadata, mode)?;
-        offset += metadata.event_len as usize;
+        let event_len = metadata.event_len as usize;
+        let event_end = offset
+            .checked_add(event_len)
+            .context("fanotify event length overflow")?;
+        if event_len < metadata.metadata_len as usize || event_end > buffer.len() {
+            return Err(anyhow!(
+                "invalid fanotify event length: event_len={} metadata_len={} remaining={}",
+                event_len,
+                metadata.metadata_len,
+                buffer.len() - offset
+            ));
+        }
+        let generation = event::process_generation(&buffer[offset..event_end], &metadata)?;
+        handle_event(
+            fanotify_fd,
+            &metadata,
+            generation,
+            paths,
+            excluded_paths,
+            mode,
+            runtime,
+        )?;
+        offset = event_end;
     }
 
     Ok(())
-}
-
-#[cfg(not(coverage))]
-fn read_metadata(buffer: &[u8], offset: usize) -> fanotify_event_metadata {
-    unsafe { std::ptr::read_unaligned(buffer[offset..].as_ptr().cast()) }
 }
 
 #[cfg(not(coverage))]
 fn handle_event(
     fanotify_fd: RawFd,
     metadata: &fanotify_event_metadata,
+    generation: Option<ProcessGeneration>,
+    paths: &[PathBuf],
+    excluded_paths: &[PathBuf],
     mode: &mut Mode<'_>,
+    runtime: &mut EventRuntime,
 ) -> Result<()> {
-    if metadata.fd < 0 {
-        return Ok(());
+    ensure_event_descriptor(metadata.mask, metadata.fd)?;
+    let result = handle_event_with_descriptor(
+        fanotify_fd,
+        metadata,
+        generation,
+        paths,
+        excluded_paths,
+        mode,
+        runtime,
+    );
+    let close_result = event::close_descriptor(metadata.fd);
+
+    result.and(close_result)
+}
+
+#[cfg(not(coverage))]
+fn handle_event_with_descriptor(
+    fanotify_fd: RawFd,
+    metadata: &fanotify_event_metadata,
+    generation: Option<ProcessGeneration>,
+    paths: &[PathBuf],
+    excluded_paths: &[PathBuf],
+    mode: &mut Mode<'_>,
+    runtime: &mut EventRuntime,
+) -> Result<()> {
+    let target_path = event::target_path(metadata.fd)?;
+    if matches!(mode, Mode::Audit { .. }) && metadata.mask & FAN_OPEN_EXEC != 0 {
+        audit::record_exec_identity(
+            metadata.pid,
+            &target_path,
+            generation,
+            &mut runtime.audit_processes,
+        );
+        if metadata.mask & (FAN_CLOSE_NOWRITE | FAN_CLOSE_WRITE) == 0 {
+            return respond_to_permission_event(fanotify_fd, metadata, Decision::Allow);
+        }
+    }
+    if !is_watched_path(&target_path, paths, excluded_paths) {
+        return respond_to_permission_event(fanotify_fd, metadata, Decision::Allow);
     }
 
-    let target_path = event_target_path(metadata.fd).unwrap_or_else(|_| PathBuf::from("<unknown>"));
-    let decision = decide_event(metadata, &target_path, mode)?;
-
-    respond_to_permission_event(fanotify_fd, metadata, decision)?;
-    unsafe {
-        close(metadata.fd);
-    }
-
-    Ok(())
+    let object = if matches!(mode, Mode::Audit { .. }) {
+        Some(event::object_id(metadata.fd)?)
+    } else {
+        None
+    };
+    let decision = decide_event(metadata, &target_path, object, generation, mode, runtime)?;
+    respond_to_permission_event(fanotify_fd, metadata, decision)
 }
 
 #[cfg(not(coverage))]
 fn decide_event(
     metadata: &fanotify_event_metadata,
     target_path: &Path,
+    object: Option<AuditObjectId>,
+    generation: Option<ProcessGeneration>,
     mode: &mut Mode<'_>,
+    runtime: &mut EventRuntime,
 ) -> Result<Decision> {
-    let access = access_kind(metadata.mask);
-    let process = match inspect_process(metadata.pid) {
-        Ok(process) => process,
-        Err(error) => {
-            eprintln!(
-                "ALLOW fail-open pid={} access={:?} path={} reason={error:#}",
-                metadata.pid,
-                access,
-                target_path.display()
-            );
-            return Ok(Decision::Allow);
-        }
-    };
-
     match mode {
-        Mode::Audit { learner, policy } => {
-            decide_audit_event(metadata.pid, &process, target_path, access, learner, policy)
-        }
+        Mode::Audit { learner, policy } => audit::decide_metadata(
+            metadata,
+            target_path,
+            object.context("audit event is missing object identity")?,
+            generation,
+            learner,
+            policy,
+            audit::AuditCaches::new(&mut runtime.audit_identities, &mut runtime.audit_processes),
+        ),
         Mode::Guard {
             policy,
             prompt,
             prompt_cache,
-        } => decide_guard_event(
-            metadata.pid,
-            &process,
-            target_path,
-            access,
-            *policy,
-            *prompt,
-            prompt_cache,
-        ),
+        } => {
+            let access = access_kind(metadata.mask);
+            let process = inspect_process_or_unknown(metadata.pid, target_path, access);
+            decide_guard_event(
+                metadata.pid,
+                &process,
+                target_path,
+                access,
+                *policy,
+                *prompt,
+                prompt_cache,
+            )
+        }
     }
 }
 
 #[cfg(not(coverage))]
-fn decide_audit_event(
-    pid: i32,
-    process: &ProcessIdentity,
-    target_path: &Path,
-    access: AccessKind,
-    learner: &mut Option<AuditLearner>,
-    policy: &mut Option<&mut dyn AccessPolicy>,
-) -> Result<Decision> {
-    let subject = process.subject();
-    if let Some(policy) = policy.as_deref_mut() {
-        let policy_decision = policy.decide(&subject, target_path, access)?;
-        log_audit_decision(
-            pid,
-            &subject.executable,
-            target_path,
-            access,
-            policy_decision,
-        );
+fn inspect_process_or_unknown(pid: i32, target_path: &Path, access: AccessKind) -> ProcessIdentity {
+    match inspect_process(pid) {
+        Ok(process) => process,
+        Err(error) => {
+            eprintln!(
+                "IDENTITY unavailable pid={} access={:?} path={} reason={error:#}; evaluating as unknown subject",
+                pid,
+                access,
+                target_path.display()
+            );
+            ProcessIdentity::unknown(pid)
+        }
     }
-    if let Some(learner) = learner.as_mut() {
-        learner.observe(&subject, target_path, access)?;
-    }
-
-    Ok(Decision::Allow)
 }
 
 #[cfg(not(coverage))]
@@ -487,15 +516,16 @@ fn cache_prompt_decision(
     }
 }
 
+#[cfg(any(test, not(coverage)))]
 impl PromptDecisionKey {
-    #[cfg(any(test, not(coverage)))]
     fn new(executable: Option<PathBuf>, access: AccessKind, decision: &Decision) -> Option<Self> {
+        let executable = executable?;
         let Decision::Prompt { reason, scope, .. } = decision else {
             return None;
         };
 
         Some(Self {
-            executable,
+            executable: Some(executable),
             access,
             reason: *reason,
             scope: scope.clone(),
@@ -551,15 +581,33 @@ fn respond_to_permission_event(
     Ok(())
 }
 
-#[cfg(not(coverage))]
-fn event_target_path(event_fd: RawFd) -> Result<PathBuf> {
-    fs::read_link(format!("/proc/self/fd/{event_fd}"))
-        .with_context(|| format!("resolving fanotify event fd {event_fd}"))
+#[cfg(any(test, not(coverage)))]
+fn audit_watch_mask() -> u64 {
+    FAN_OPEN | FAN_OPEN_EXEC | FAN_CLOSE_NOWRITE | FAN_CLOSE_WRITE
 }
 
 #[cfg(any(test, not(coverage)))]
-fn watch_mask() -> u64 {
+fn guard_watch_mask() -> u64 {
     FAN_OPEN_PERM | FAN_CLOSE_WRITE | FAN_EVENT_ON_CHILD
+}
+
+#[cfg(any(test, not(coverage)))]
+fn ensure_event_descriptor(mask: u64, event_fd: RawFd) -> Result<()> {
+    if mask & FAN_Q_OVERFLOW != 0 {
+        return Err(anyhow!(
+            "fanotify event queue overflow; audit coverage was lost"
+        ));
+    }
+    if event_fd == FAN_NOFD || event_fd < 0 {
+        return Err(anyhow!("invalid fanotify event descriptor {event_fd}"));
+    }
+
+    Ok(())
+}
+
+#[cfg(any(test, not(coverage)))]
+fn is_watched_path(path: &Path, paths: &[PathBuf], excluded_paths: &[PathBuf]) -> bool {
+    paths.iter().any(|root| path.starts_with(root)) && !is_excluded(path, excluded_paths)
 }
 
 #[cfg(any(test, not(coverage)))]

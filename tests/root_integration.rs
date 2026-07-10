@@ -119,6 +119,91 @@ fn guard_reuses_prompt_answer_for_same_process_and_scope() {
 
 #[test]
 #[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
+fn audit_watches_new_descendants_and_classifies_writes() {
+    require_root();
+    let fixture = RootFixture::new("audit_watches_new_descendants_and_classifies_writes");
+    let mut guard = ConfigGuardProcess::start([
+        "audit",
+        "--path",
+        fixture.watch_root().to_str().unwrap(),
+        "--config",
+        fixture.config_path().to_str().unwrap(),
+    ]);
+
+    guard.wait_for_line("watching ");
+    let new_directory = fixture.protected_dir().join("created-after-start");
+    let new_file = new_directory.join("probe.txt");
+    fs::create_dir_all(&new_directory).expect("create protected descendant after audit start");
+    fs::write(&new_file, "new probe\n").expect("write new protected descendant");
+
+    let forbid = guard.wait_for_line(&format!("path={}", new_file.display()));
+    assert!(forbid.contains("access=Write"), "{forbid}");
+    guard.assert_no_line(
+        &format!("path={}", new_file.display()),
+        Duration::from_secs(1),
+    );
+}
+
+#[test]
+#[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
+fn audit_pairs_identity_across_rename_before_close() {
+    require_root();
+    let fixture = RootFixture::new("audit_pairs_identity_across_rename_before_close");
+    let mut guard = ConfigGuardProcess::start([
+        "audit",
+        "--path",
+        fixture.watch_root().to_str().unwrap(),
+        "--config",
+        fixture.config_path().to_str().unwrap(),
+    ]);
+
+    guard.wait_for_line("watching ");
+    let renamed_path = fixture.protected_dir().join("renamed-probe.txt");
+    let mut reader = Command::new("tail")
+        .arg("-f")
+        .arg(fixture.probe_path())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn tail reader");
+    thread::sleep(Duration::from_millis(100));
+    fs::rename(fixture.probe_path(), &renamed_path).expect("rename open audit probe");
+    reader.kill().expect("stop tail reader");
+    let status = reader.wait().expect("wait for tail reader");
+    assert!(!status.success(), "killed tail should not succeed");
+
+    let forbid = guard.wait_for_line(&format!("path={}", renamed_path.display()));
+    assert!(forbid.contains("exe=tail"), "{forbid}");
+    assert!(forbid.contains("access=Read"), "{forbid}");
+}
+
+#[test]
+#[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
+fn audit_filters_paths_outside_configured_roots_on_the_same_mount() {
+    require_root();
+    let fixture =
+        RootFixture::new("audit_filters_paths_outside_configured_roots_on_the_same_mount");
+    let mut guard = ConfigGuardProcess::start([
+        "audit",
+        "--path",
+        fixture.watch_root().to_str().unwrap(),
+        "--config",
+        fixture.config_path().to_str().unwrap(),
+    ]);
+
+    guard.wait_for_line("watching ");
+    let output = run_with_timeout(
+        Command::new("cat").arg(fixture.config_path()),
+        TIMEOUT,
+        "cat file outside configured audit root",
+    );
+
+    assert!(output.status.success(), "cat failed: {output:?}");
+    guard.assert_no_line("FORBID audit", Duration::from_secs(1));
+}
+
+#[test]
+#[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
 fn audit_watches_multiple_roots_from_one_process() {
     require_root();
     let fixture = RootFixture::new("audit_watches_multiple_roots_from_one_process");

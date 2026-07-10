@@ -3,7 +3,7 @@ use anyhow::{Context, Result, bail};
 use authd_protocol::collect_wayland_env;
 use clap::{Parser, Subcommand};
 #[cfg(not(coverage))]
-use config_guard::fanotify::{AccessPolicy, Mode, PromptDecisionCache, ensure_path_exists};
+use config_guard::fanotify::{AccessPolicy, Mode, PromptDecisionCache};
 #[cfg(not(coverage))]
 use config_guard::learning::AuditLearner;
 use config_guard::learning::PathAlias;
@@ -201,7 +201,8 @@ fn run_audit(
     config: Option<PathBuf>,
     learn_output: Option<PathBuf>,
 ) -> Result<()> {
-    ensure_paths_exist(&paths)?;
+    let paths = canonicalize_scope_paths(paths, "watch")?;
+    let excluded_paths = canonicalize_scope_paths(excluded_paths, "excluded")?;
     let home_dir = audit_home(&paths);
     let learner = learn_output.map(|output_path| AuditLearner::new(output_path, home_dir.clone()));
     let config_path = resolve_config_path(config);
@@ -232,12 +233,29 @@ fn audit_home(paths: &[PathBuf]) -> PathBuf {
 }
 
 #[cfg(not(coverage))]
-fn ensure_paths_exist(paths: &[PathBuf]) -> Result<()> {
-    for path in paths {
-        ensure_path_exists(path)?;
-    }
+fn canonicalize_scope_paths(paths: Vec<PathBuf>, kind: &str) -> Result<Vec<PathBuf>> {
+    let current_dir = std::env::current_dir().context("reading current directory")?;
+    canonicalize_scope_paths_in(paths, &current_dir, kind)
+}
 
-    Ok(())
+#[cfg(any(test, not(coverage)))]
+fn canonicalize_scope_paths_in(
+    paths: Vec<PathBuf>,
+    current_dir: &Path,
+    kind: &str,
+) -> Result<Vec<PathBuf>> {
+    paths
+        .into_iter()
+        .map(|path| {
+            let absolute_path = if path.is_absolute() {
+                path
+            } else {
+                current_dir.join(path)
+            };
+            std::fs::canonicalize(&absolute_path)
+                .with_context(|| format!("canonicalizing {kind} path {}", absolute_path.display()))
+        })
+        .collect()
 }
 
 #[cfg(not(coverage))]
@@ -248,7 +266,8 @@ fn run_guard(
     prompt_command: Option<PathBuf>,
     timeout_seconds: u64,
 ) -> Result<()> {
-    ensure_paths_exist(&paths)?;
+    let paths = canonicalize_scope_paths(paths, "watch")?;
+    let excluded_paths = canonicalize_scope_paths(excluded_paths, "excluded")?;
     let policy_config = load_policy_config(config)?;
     let mut policy = StaticPolicy::new(policy_config, audit_home(&paths));
     let timeout = Duration::from_secs(timeout_seconds);
@@ -445,8 +464,8 @@ mod tests {
     #[cfg(coverage)]
     use super::main;
     use super::{
-        default_config_path_in, load_policy_config, logical_policy_path, parse_decision,
-        parse_decision_reason,
+        canonicalize_scope_paths_in, default_config_path_in, load_policy_config,
+        logical_policy_path, parse_decision, parse_decision_reason,
     };
     use config_guard::learning::PathAlias;
     use config_guard::policy::{Decision, DecisionReason};
@@ -474,6 +493,28 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(config_home);
+    }
+
+    #[test]
+    fn canonicalizes_relative_and_parent_scope_paths() {
+        let base =
+            std::env::temp_dir().join(format!("config-guard-scope-test-{}", std::process::id()));
+        let watch = base.join("watch");
+        let child = watch.join("child");
+        fs::create_dir_all(&child).expect("create scope tree");
+
+        let canonical = canonicalize_scope_paths_in(
+            vec![PathBuf::from("watch"), child.join("..")],
+            &base,
+            "watch",
+        )
+        .expect("canonicalize scope");
+
+        assert_eq!(canonical, vec![watch.clone(), watch]);
+        assert!(
+            canonicalize_scope_paths_in(vec![PathBuf::from("missing")], &base, "excluded").is_err()
+        );
+        let _ = fs::remove_dir_all(base);
     }
 
     #[test]
