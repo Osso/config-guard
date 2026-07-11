@@ -42,6 +42,20 @@ enum Command {
         #[arg(long)]
         learn_output: Option<PathBuf>,
     },
+    AuditPrompt {
+        #[arg(long = "path", required = true)]
+        paths: Vec<PathBuf>,
+        #[arg(long = "exclude-path")]
+        excluded_paths: Vec<PathBuf>,
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        prompt_command: Option<PathBuf>,
+        #[arg(long, default_value_t = 10)]
+        timeout_seconds: u64,
+        #[arg(long)]
+        learn_output: Option<PathBuf>,
+    },
     Guard {
         #[arg(long = "path", required = true)]
         paths: Vec<PathBuf>,
@@ -89,6 +103,7 @@ fn main() -> Result<ExitCode> {
 fn run_command(command: Command) -> Result<ExitCode> {
     match command {
         audit @ Command::Audit { .. } => run_audit_command(audit),
+        audit_prompt @ Command::AuditPrompt { .. } => run_audit_prompt_command(audit_prompt),
         guard @ Command::Guard { .. } => run_guard_command(guard),
         reconcile @ Command::Reconcile { .. } => run_reconcile_command(reconcile),
         prompt @ Command::TestPrompt { .. } => run_test_prompt_command(prompt),
@@ -108,6 +123,30 @@ fn run_audit_command(command: Command) -> Result<ExitCode> {
     };
 
     run_unit_command(run_audit(paths, excluded_paths, config, learn_output))
+}
+
+#[cfg(not(coverage))]
+fn run_audit_prompt_command(command: Command) -> Result<ExitCode> {
+    let Command::AuditPrompt {
+        paths,
+        excluded_paths,
+        config,
+        prompt_command,
+        timeout_seconds,
+        learn_output,
+    } = command
+    else {
+        unreachable!("run_audit_prompt_command called with non-audit-prompt command")
+    };
+
+    run_unit_command(run_audit_prompt(
+        paths,
+        excluded_paths,
+        config,
+        prompt_command,
+        timeout_seconds,
+        learn_output,
+    ))
 }
 
 #[cfg(not(coverage))]
@@ -202,6 +241,38 @@ fn run_audit(
     config: Option<PathBuf>,
     learn_output: Option<PathBuf>,
 ) -> Result<()> {
+    run_audit_mode(paths, excluded_paths, config, None, learn_output)
+}
+
+#[cfg(not(coverage))]
+fn run_audit_prompt(
+    paths: Vec<PathBuf>,
+    excluded_paths: Vec<PathBuf>,
+    config: Option<PathBuf>,
+    prompt_command: Option<PathBuf>,
+    timeout_seconds: u64,
+    learn_output: Option<PathBuf>,
+) -> Result<()> {
+    run_audit_mode(
+        paths,
+        excluded_paths,
+        config,
+        Some(build_prompt(
+            prompt_command,
+            Duration::from_secs(timeout_seconds),
+        )),
+        learn_output,
+    )
+}
+
+#[cfg(not(coverage))]
+fn run_audit_mode(
+    paths: Vec<PathBuf>,
+    excluded_paths: Vec<PathBuf>,
+    config: Option<PathBuf>,
+    prompt: Option<Box<dyn Prompt>>,
+    learn_output: Option<PathBuf>,
+) -> Result<()> {
     let paths = canonicalize_scope_paths(paths, "watch")?;
     let excluded_paths = canonicalize_scope_paths(excluded_paths, "excluded")?;
     let home_dir = audit_home(&paths);
@@ -212,14 +283,26 @@ fn run_audit(
     let policy_config = load_policy_config(config_path)?;
     let mut policy = StaticPolicy::new(policy_config, path_aliases);
 
-    config_guard::fanotify::run(
-        &paths,
-        &excluded_paths,
-        Mode::Audit {
-            learner,
-            policy: Some(&mut policy),
-        },
-    )
+    match prompt.as_deref() {
+        Some(prompt) => config_guard::fanotify::run(
+            &paths,
+            &excluded_paths,
+            Mode::AuditPrompt {
+                learner,
+                policy: Box::new(policy),
+                prompt,
+                prompt_cache: PromptDecisionCache::default(),
+            },
+        ),
+        None => config_guard::fanotify::run(
+            &paths,
+            &excluded_paths,
+            Mode::Audit {
+                learner,
+                policy: Some(&mut policy),
+            },
+        ),
+    }
 }
 
 #[cfg(not(coverage))]

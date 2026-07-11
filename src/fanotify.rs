@@ -7,11 +7,11 @@ mod audit_process;
 #[cfg(not(coverage))]
 mod event;
 #[cfg(any(test, not(coverage)))]
+mod prompt_resolution;
+#[cfg(any(test, not(coverage)))]
 mod watch;
 
 use crate::learning::AuditLearner;
-#[cfg(any(test, not(coverage)))]
-use crate::policy::DecisionReason;
 #[cfg(not(coverage))]
 use crate::policy::executable_label;
 use crate::policy::{AccessKind, Decision, ProcessSubject};
@@ -20,8 +20,6 @@ use crate::process::ProcessIdentity;
 #[cfg(not(coverage))]
 use crate::process::{inspect_process, read_wayland_env};
 use crate::prompt::Prompt;
-#[cfg(any(test, not(coverage)))]
-use crate::prompt::PromptRequest;
 #[cfg(not(coverage))]
 use anyhow::Context;
 use anyhow::{Result, anyhow};
@@ -42,7 +40,14 @@ use libc::{
     c_void, fanotify_response, read, write,
 };
 #[cfg(any(test, not(coverage)))]
-use std::collections::HashMap;
+pub use prompt_resolution::PromptDecisionCache;
+#[cfg(all(coverage, not(test)))]
+#[derive(Default)]
+pub struct PromptDecisionCache;
+#[cfg(test)]
+pub(super) use prompt_resolution::has_graphical_session;
+#[cfg(any(test, not(coverage)))]
+pub(super) use prompt_resolution::{PromptDecisionKey, resolve_policy_decision};
 #[cfg(not(coverage))]
 use std::mem;
 #[cfg(any(test, not(coverage)))]
@@ -68,6 +73,12 @@ pub enum Mode<'a> {
         learner: Option<AuditLearner>,
         policy: Option<&'a mut dyn AccessPolicy>,
     },
+    AuditPrompt {
+        learner: Option<AuditLearner>,
+        policy: Box<dyn AccessPolicy>,
+        prompt: &'a dyn Prompt,
+        prompt_cache: PromptDecisionCache,
+    },
     Guard {
         policy: &'a mut dyn AccessPolicy,
         prompt: &'a dyn Prompt,
@@ -82,37 +93,6 @@ pub trait AccessPolicy {
         target_path: &Path,
         access: AccessKind,
     ) -> Result<Decision>;
-}
-
-#[derive(Default)]
-pub struct PromptDecisionCache {
-    #[cfg(any(test, not(coverage)))]
-    decisions: HashMap<PromptDecisionKey, Decision>,
-}
-
-#[cfg(any(test, not(coverage)))]
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct PromptDecisionKey {
-    executable: Option<PathBuf>,
-    access: AccessKind,
-    reason: DecisionReason,
-    scope: PathBuf,
-}
-
-impl PromptDecisionCache {
-    #[cfg(any(test, not(coverage)))]
-    fn get(&self, key: &PromptDecisionKey) -> Option<Decision> {
-        self.decisions.get(key).cloned()
-    }
-
-    #[cfg(any(test, not(coverage)))]
-    fn insert(&mut self, key: PromptDecisionKey, decision: Decision) {
-        if !matches!(decision, Decision::Allow) {
-            return;
-        }
-
-        self.decisions.insert(key, decision);
-    }
 }
 
 #[cfg(not(coverage))]
@@ -141,7 +121,7 @@ pub fn run(paths: &[PathBuf], _excluded_paths: &[PathBuf], _mode: Mode<'_>) -> R
 fn create_fanotify_fd(mode: &Mode<'_>) -> Result<RawFd> {
     let event_flags = (O_RDONLY | O_CLOEXEC) as u32;
     let init_flags = match mode {
-        Mode::Audit { .. } => {
+        Mode::Audit { .. } | Mode::AuditPrompt { .. } => {
             FAN_CLASS_NOTIF | FAN_CLOEXEC | FAN_UNLIMITED_QUEUE | FAN_REPORT_PIDFD
         }
         Mode::Guard { .. } => FAN_CLASS_CONTENT | FAN_CLOEXEC,
@@ -277,7 +257,9 @@ fn handle_event_with_descriptor(
     runtime: &mut EventRuntime,
 ) -> Result<()> {
     let target_path = event::target_path(metadata.fd)?;
-    if matches!(mode, Mode::Audit { .. }) && metadata.mask & FAN_OPEN_EXEC != 0 {
+    if matches!(mode, Mode::Audit { .. } | Mode::AuditPrompt { .. })
+        && metadata.mask & FAN_OPEN_EXEC != 0
+    {
         audit::record_exec_identity(
             metadata.pid,
             &target_path,
@@ -292,7 +274,7 @@ fn handle_event_with_descriptor(
         return respond_to_permission_event(fanotify_fd, metadata, Decision::Allow);
     }
 
-    let object = if matches!(mode, Mode::Audit { .. }) {
+    let object = if matches!(mode, Mode::Audit { .. } | Mode::AuditPrompt { .. }) {
         Some(event::object_id(metadata.fd)?)
     } else {
         None
@@ -311,33 +293,132 @@ fn decide_event(
     runtime: &mut EventRuntime,
 ) -> Result<Decision> {
     match mode {
-        Mode::Audit { learner, policy } => audit::decide_metadata(
-            metadata,
-            target_path,
-            object.context("audit event is missing object identity")?,
-            generation,
-            learner,
-            policy,
-            audit::AuditCaches::new(&mut runtime.audit_identities, &mut runtime.audit_processes),
-        ),
+        Mode::Audit { .. } | Mode::AuditPrompt { .. } => {
+            decide_audit_mode(metadata, target_path, object, generation, mode, runtime)
+        }
         Mode::Guard {
             policy,
             prompt,
             prompt_cache,
         } => {
-            let access = access_kind(metadata.mask);
-            let process = inspect_process_or_unknown(metadata.pid, target_path, access);
-            decide_guard_event(
-                metadata.pid,
-                &process,
-                target_path,
-                access,
-                *policy,
-                *prompt,
-                prompt_cache,
-            )
+            decide_guard_event_from_metadata(metadata, target_path, *policy, *prompt, prompt_cache)
         }
     }
+}
+
+#[cfg(not(coverage))]
+fn decide_audit_mode(
+    metadata: &fanotify_event_metadata,
+    target_path: &Path,
+    object: Option<AuditObjectId>,
+    generation: Option<ProcessGeneration>,
+    mode: &mut Mode<'_>,
+    runtime: &mut EventRuntime,
+) -> Result<Decision> {
+    match mode {
+        Mode::Audit { learner, policy } => decide_passive_audit_event(
+            metadata,
+            target_path,
+            object,
+            generation,
+            learner,
+            policy,
+            runtime,
+        ),
+        Mode::AuditPrompt {
+            learner,
+            policy,
+            prompt,
+            prompt_cache,
+        } => {
+            let context = PromptAuditContext {
+                learner,
+                policy,
+                prompt: *prompt,
+                prompt_cache,
+                runtime,
+            };
+            decide_prompt_audit_event(metadata, target_path, object, generation, context)
+        }
+        Mode::Guard { .. } => unreachable!("decide_audit_mode called with guard mode"),
+    }
+}
+
+#[cfg(not(coverage))]
+fn decide_guard_event_from_metadata(
+    metadata: &fanotify_event_metadata,
+    target_path: &Path,
+    policy: &mut dyn AccessPolicy,
+    prompt: &dyn Prompt,
+    prompt_cache: &mut PromptDecisionCache,
+) -> Result<Decision> {
+    let access = access_kind(metadata.mask);
+    let process = inspect_process_or_unknown(metadata.pid, target_path, access);
+    decide_guard_event(
+        metadata.pid,
+        &process,
+        target_path,
+        access,
+        policy,
+        prompt,
+        prompt_cache,
+    )
+}
+
+#[cfg(not(coverage))]
+fn decide_passive_audit_event(
+    metadata: &fanotify_event_metadata,
+    target_path: &Path,
+    object: Option<AuditObjectId>,
+    generation: Option<ProcessGeneration>,
+    learner: &mut Option<AuditLearner>,
+    policy: &mut Option<&mut dyn AccessPolicy>,
+    runtime: &mut EventRuntime,
+) -> Result<Decision> {
+    audit::decide_metadata(
+        metadata,
+        target_path,
+        object.context("audit event is missing object identity")?,
+        generation,
+        learner,
+        policy,
+        audit::AuditCaches::new(&mut runtime.audit_identities, &mut runtime.audit_processes),
+    )
+}
+
+#[cfg(not(coverage))]
+struct PromptAuditContext<'a> {
+    learner: &'a mut Option<AuditLearner>,
+    policy: &'a mut Box<dyn AccessPolicy>,
+    prompt: &'a dyn Prompt,
+    prompt_cache: &'a mut PromptDecisionCache,
+    runtime: &'a mut EventRuntime,
+}
+
+#[cfg(not(coverage))]
+fn decide_prompt_audit_event(
+    metadata: &fanotify_event_metadata,
+    target_path: &Path,
+    object: Option<AuditObjectId>,
+    generation: Option<ProcessGeneration>,
+    context: PromptAuditContext<'_>,
+) -> Result<Decision> {
+    audit::decide_metadata_prompt(
+        metadata,
+        target_path,
+        object.context("audit event is missing object identity")?,
+        generation,
+        &mut audit::AuditEvaluation::new(
+            context.learner,
+            Some(context.prompt),
+            context.prompt_cache,
+        ),
+        context.policy.as_mut(),
+        audit::AuditCaches::new(
+            &mut context.runtime.audit_identities,
+            &mut context.runtime.audit_processes,
+        ),
+    )
 }
 
 #[cfg(not(coverage))]
@@ -421,136 +502,24 @@ fn log_audit_decision(
     }
 }
 
-/// Whether the accessing process belongs to a graphical session we can show a
-/// confirmation dialog in. Without a Wayland display there is no session to
-/// prompt, so the guard must fall back to its default rather than flood the
-/// prompt backend with dialogs no one can answer.
-#[cfg(any(test, not(coverage)))]
-fn has_graphical_session(env: &std::collections::HashMap<String, String>) -> bool {
-    env.get("WAYLAND_DISPLAY")
-        .is_some_and(|value| !value.is_empty())
-}
-
-#[cfg(any(test, not(coverage)))]
-fn resolve_policy_decision(
-    prompt: &dyn Prompt,
-    prompt_cache: &mut PromptDecisionCache,
-    prompt_key: Option<PromptDecisionKey>,
-    subject: &crate::policy::ProcessSubject,
+#[cfg(not(coverage))]
+fn log_audit_prompt_decision(
+    pid: i32,
+    executable: &Path,
     target_path: &Path,
-    env: std::collections::HashMap<String, String>,
-    decision: Decision,
-) -> Result<Decision> {
-    let Decision::Prompt {
-        reason,
-        default,
-        scope: _,
-    } = decision
-    else {
-        return Ok(decision);
-    };
-
-    if let Some(decision) = cached_prompt_decision(prompt_cache, prompt_key.as_ref()) {
-        return Ok(decision);
-    }
-
-    // An interactive prompt only makes sense when the accessing process has a
-    // graphical session to show the dialog in. System daemons (getty, dbus
-    // services, …) carry no Wayland environment; prompting for them is
-    // impossible and floods the prompt backend until the session wedges, so
-    // apply the configured default instead. The event is already audit-logged
-    // by the caller, so this stays visible without prompting.
-    if !has_graphical_session(&env) {
-        return Ok(apply_default_decision(prompt_cache, prompt_key, *default));
-    }
-
-    let default_decision = *default;
-    let request = PromptRequest {
-        subject,
-        target_path,
-        reason,
-        default_decision: default_decision.clone(),
-        env,
-    };
-
-    match prompt.ask(&request) {
-        Ok(decision) => {
-            cache_prompt_decision(prompt_cache, prompt_key, &decision);
-            Ok(decision)
-        }
-        Err(error) => Ok(prompt_failure_decision(
-            subject,
-            target_path,
-            reason,
-            default_decision,
-            error,
-        )),
-    }
-}
-
-#[cfg(any(test, not(coverage)))]
-fn apply_default_decision(
-    prompt_cache: &mut PromptDecisionCache,
-    prompt_key: Option<PromptDecisionKey>,
-    default_decision: Decision,
-) -> Decision {
-    cache_prompt_decision(prompt_cache, prompt_key, &default_decision);
-    default_decision
-}
-
-#[cfg(any(test, not(coverage)))]
-fn cached_prompt_decision(
-    prompt_cache: &PromptDecisionCache,
-    prompt_key: Option<&PromptDecisionKey>,
-) -> Option<Decision> {
-    prompt_key.and_then(|key| prompt_cache.get(key))
-}
-
-#[cfg(any(test, not(coverage)))]
-fn cache_prompt_decision(
-    prompt_cache: &mut PromptDecisionCache,
-    prompt_key: Option<PromptDecisionKey>,
-    decision: &Decision,
+    access: AccessKind,
+    policy_decision: Decision,
+    user_decision: Decision,
 ) {
-    if let Some(key) = prompt_key {
-        prompt_cache.insert(key, decision.clone());
-    }
-}
-
-#[cfg(any(test, not(coverage)))]
-impl PromptDecisionKey {
-    fn new(executable: Option<PathBuf>, access: AccessKind, decision: &Decision) -> Option<Self> {
-        let executable = executable?;
-        let Decision::Prompt { reason, scope, .. } = decision else {
-            return None;
-        };
-
-        Some(Self {
-            executable: Some(executable),
-            access,
-            reason: *reason,
-            scope: scope.clone(),
-        })
-    }
-}
-
-#[cfg(any(test, not(coverage)))]
-fn prompt_failure_decision(
-    subject: &ProcessSubject,
-    target_path: &Path,
-    reason: crate::policy::DecisionReason,
-    default_decision: Decision,
-    error: anyhow::Error,
-) -> Decision {
     eprintln!(
-        "prompt failed subject={} path={} reason={:?}: {error:#}; using default {:?}",
-        subject.executable.display(),
+        "FORBID audit-prompt pid={} exe={} access={:?} path={} policy={:?} user_decision={:?}",
+        pid,
+        executable_label(executable),
+        access,
         target_path.display(),
-        reason,
-        default_decision
+        policy_decision,
+        user_decision
     );
-
-    default_decision
 }
 
 #[cfg(not(coverage))]

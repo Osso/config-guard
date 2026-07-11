@@ -26,6 +26,7 @@ Policy decisions:
 Audit and guard runtime:
 
 - [x] In audit mode, log policy violations as `FORBID audit` lines for cross-owner access without denying the operation.
+- [x] In audit-prompt mode, invoke the configured session prompt for policy Prompt decisions, log the user's decision as `FORBID audit-prompt`, and always allow the underlying access.
 - [x] In guard mode, invoke the configured prompt command for cross-owner access.
 - [x] Reuse an approved prompt answer for the same executable, access kind, reason, and policy scope.
 - [x] Do not cache explicit prompt denials as durable executable approvals.
@@ -45,6 +46,7 @@ Audit and guard runtime:
 - [x] Evaluate policy with an unknown subject when process inspection fails instead of bypassing the policy.
 - [x] Make deployment enable and restart the systemd unit in audit mode, wait for systemd readiness, then check its mode, active process, restart count, and boot enablement.
 - [ ] Keep guard disabled until audit burn-in is complete; document the manual systemd transition and rollback, including its future-directory and post-write-only limitations.
+- [x] Keep audit-prompt separate from the deployed audit service so dialog testing cannot enforce access.
 
 Process identity:
 
@@ -87,8 +89,8 @@ Local policy file:
 
 CLI and deployment:
 
-- [x] Provide `audit`, `guard`, `reconcile`, and `test-prompt` subcommands.
-- [x] Require at least one `--path` for `audit` and `guard`.
+- [x] Provide `audit`, `audit-prompt`, `guard`, `reconcile`, and `test-prompt` subcommands.
+- [x] Require at least one `--path` for `audit`, `audit-prompt`, and `guard`.
 - [x] Support `--exclude-path` for watched trees.
 - [x] Support a configurable policy path through `--config`, falling back to the default user config path when present.
 - [x] Deploy the release binary, local policy config, and systemd service through `deploy.sh`.
@@ -102,9 +104,10 @@ CLI and deployment:
 
 ## Implementation inventory
 
-- `src/main.rs` - CLI command parsing and command wiring for audit, guard, reconcile, and prompt testing.
-- `src/fanotify.rs` - mode-specific fanotify setup, mount/tree marking, scope filtering, overflow handling, prompt resolution, and guard responses.
-- `src/fanotify/audit.rs` - audit open-identity capture, close-event classification, policy evaluation, learning, and logging orchestration.
+- `src/main.rs` - CLI command parsing and command wiring for audit, audit-prompt, guard, reconcile, and prompt testing.
+- `src/fanotify.rs` - mode-specific fanotify setup, mount/tree marking, scope filtering, overflow handling, and guard responses.
+- `src/fanotify/audit.rs` - audit and audit-prompt open-identity capture, close-event classification, policy evaluation, learning, and logging orchestration.
+- `src/fanotify/prompt_resolution.rs` - prompt decision caching, graphical-session detection, and prompt resolution.
 - `src/fanotify/audit_identity.rs` - bounded PID/object-identity queues bridging audit open and close events across path renames.
 - `src/fanotify/audit_process.rs` - bounded TTL cache of executable identities keyed by pidfd process generation for processes too short-lived for procfs inspection.
 - `src/fanotify/event.rs` - fanotify metadata parsing, pidfd process-generation extraction, event target/object identity, and descriptor cleanup.

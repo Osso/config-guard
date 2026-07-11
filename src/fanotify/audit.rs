@@ -1,6 +1,6 @@
 use super::{
-    AccessPolicy, AuditIdentityCache, AuditObjectId, AuditProcessCache, ProcessGeneration,
-    inspect_process_or_unknown,
+    AccessPolicy, AuditIdentityCache, AuditObjectId, AuditProcessCache, ProcessGeneration, Prompt,
+    PromptDecisionCache, inspect_process_or_unknown,
 };
 use crate::learning::AuditLearner;
 use crate::policy::{AccessKind, Decision};
@@ -8,6 +8,26 @@ use crate::process::{ProcessIdentity, inspect_process};
 use anyhow::Result;
 use libc::{FAN_CLOSE_NOWRITE, FAN_CLOSE_WRITE, FAN_OPEN, fanotify_event_metadata};
 use std::path::Path;
+
+pub(super) struct AuditEvaluation<'learner, 'prompt> {
+    learner: &'learner mut Option<AuditLearner>,
+    prompt: Option<&'prompt dyn Prompt>,
+    prompt_cache: &'prompt mut PromptDecisionCache,
+}
+
+impl<'learner, 'prompt> AuditEvaluation<'learner, 'prompt> {
+    pub(super) fn new(
+        learner: &'learner mut Option<AuditLearner>,
+        prompt: Option<&'prompt dyn Prompt>,
+        prompt_cache: &'prompt mut PromptDecisionCache,
+    ) -> Self {
+        Self {
+            learner,
+            prompt,
+            prompt_cache,
+        }
+    }
+}
 
 pub(super) struct AuditCaches<'a> {
     identities: &'a mut AuditIdentityCache,
@@ -55,6 +75,47 @@ pub(super) fn decide_metadata(
         .unwrap_or_else(|| inspect_process_or_unknown(metadata.pid, target_path, first_access));
     for access in access_kinds {
         decide_event(metadata.pid, &process, target_path, access, learner, policy)?;
+    }
+
+    Ok(Decision::Allow)
+}
+
+pub(super) fn decide_metadata_prompt(
+    metadata: &fanotify_event_metadata,
+    target_path: &Path,
+    object: AuditObjectId,
+    generation: Option<ProcessGeneration>,
+    evaluation: &mut AuditEvaluation<'_, '_>,
+    policy: &mut dyn AccessPolicy,
+    caches: AuditCaches<'_>,
+) -> Result<Decision> {
+    record_open_identity(
+        metadata,
+        target_path,
+        object,
+        generation,
+        caches.identities,
+        caches.processes,
+    );
+    let access_kinds = access_kinds(metadata.mask);
+    let Some(first_access) = access_kinds.first().copied() else {
+        return Ok(Decision::Allow);
+    };
+
+    let process = caches
+        .identities
+        .take(metadata.pid, object)
+        .or_else(|| generation.and_then(|generation| caches.processes.get(generation)))
+        .unwrap_or_else(|| inspect_process_or_unknown(metadata.pid, target_path, first_access));
+    for access in access_kinds {
+        decide_prompt_event(
+            metadata.pid,
+            &process,
+            target_path,
+            access,
+            evaluation,
+            policy,
+        )?;
     }
 
     Ok(Decision::Allow)
@@ -133,6 +194,51 @@ pub(super) fn decide_event(
         );
     }
     if let Some(learner) = learner.as_mut() {
+        learner.observe(&subject, target_path, access)?;
+    }
+
+    Ok(Decision::Allow)
+}
+
+fn decide_prompt_event(
+    pid: i32,
+    process: &ProcessIdentity,
+    target_path: &Path,
+    access: AccessKind,
+    evaluation: &mut AuditEvaluation<'_, '_>,
+    policy: &mut dyn AccessPolicy,
+) -> Result<Decision> {
+    let subject = process.subject();
+    let policy_decision = policy.decide(&subject, target_path, access)?;
+    super::log_audit_decision(
+        pid,
+        &subject.executable,
+        target_path,
+        access,
+        policy_decision.clone(),
+    );
+    if let (Decision::Prompt { .. }, Some(prompt)) = (&policy_decision, evaluation.prompt) {
+        let prompt_key =
+            super::PromptDecisionKey::new(process.executable.clone(), access, &policy_decision);
+        let user_decision = super::resolve_policy_decision(
+            prompt,
+            evaluation.prompt_cache,
+            prompt_key,
+            &subject,
+            target_path,
+            super::read_wayland_env(pid),
+            policy_decision.clone(),
+        )?;
+        super::log_audit_prompt_decision(
+            pid,
+            &subject.executable,
+            target_path,
+            access,
+            policy_decision,
+            user_decision,
+        );
+    }
+    if let Some(learner) = evaluation.learner.as_mut() {
         learner.observe(&subject, target_path, access)?;
     }
 

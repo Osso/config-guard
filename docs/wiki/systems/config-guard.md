@@ -5,6 +5,7 @@ Config Guard watches sensitive configuration trees with Linux fanotify and evalu
 ## Runtime modes
 
 - `audit` logs policy violations as `FORBID audit` and always lets the access continue.
+- `audit-prompt` uses the same prompt backend as guard, logs policy violations as `FORBID audit` and the resulting user/default decision as `FORBID audit-prompt`, and always lets the access continue. Use it to validate the dialog before enforcement.
 - `guard` resolves policy violations through authd or a configured prompt command, then permits or denies the event.
 
 Audit and guard use different fanotify strategies:
@@ -16,7 +17,11 @@ Audit requests an unlimited kernel event queue because the service runs with `CA
 
 If process inspection fails, Config Guard logs the identity failure and evaluates policy using an explicit `unknown` subject. Unknown identities are not eligible for prompt-decision caching.
 
-The installed systemd unit runs `audit`. Switching to `guard` is a deliberate post-burn-in change, not part of normal deployment.
+The installed systemd unit runs `audit`. `audit-prompt` is a manual diagnostic mode and is not used by deployment. Switching to `guard` is a deliberate post-burn-in change, not part of normal deployment.
+
+## Testing the session dialog
+
+Run `test-prompt` for one direct authd/session-dialog request, or run `audit-prompt` against a temporary scope. The latter logs `user_decision=...` but never enforces the decision.
 
 ## Deployment
 

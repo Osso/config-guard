@@ -25,7 +25,7 @@ pub(super) fn install(
         .join(", ");
 
     match mode {
-        Mode::Audit { .. } => {
+        Mode::Audit { .. } | Mode::AuditPrompt { .. } => {
             mark_audit_mounts(fanotify_fd, paths)?;
             Ok(format!(
                 "watching {watch_list} with mount notifications ({} root requests installed)",

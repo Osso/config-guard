@@ -33,6 +33,39 @@ fn audit_logs_forbid_for_cross_owner_access() {
 
 #[test]
 #[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
+fn audit_prompt_logs_user_decision_without_enforcing_access() {
+    require_root();
+    let fixture = RootFixture::new("audit_prompt_logs_user_decision_without_enforcing_access");
+    let mut guard = ConfigGuardProcess::start([
+        "audit-prompt",
+        "--path",
+        fixture.watch_root().to_str().unwrap(),
+        "--config",
+        fixture.config_path().to_str().unwrap(),
+        "--prompt-command",
+        fixture.prompt_command_path().to_str().unwrap(),
+        "--timeout-seconds",
+        "1",
+    ]);
+
+    guard.wait_for_line("watching ");
+    let output = run_with_timeout(
+        Command::new("cat").arg(fixture.probe_path()),
+        TIMEOUT,
+        "cat probe under audit-prompt",
+    );
+
+    assert!(
+        output.status.success(),
+        "audit-prompt must not enforce: {output:?}"
+    );
+    let prompt_log = guard.wait_for_line("FORBID audit-prompt");
+    assert!(prompt_log.contains("policy=Prompt"), "{prompt_log}");
+    assert!(prompt_log.contains("user_decision=Allow"), "{prompt_log}");
+}
+
+#[test]
+#[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
 fn guard_invokes_prompt_command_for_cross_owner_access() {
     require_root();
     let fixture = RootFixture::new("guard_invokes_prompt_command_for_cross_owner_access");
