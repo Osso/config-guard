@@ -53,26 +53,13 @@ pub(super) fn decide_metadata(
     generation: Option<ProcessGeneration>,
     learner: &mut Option<AuditLearner>,
     policy: &mut Option<&mut dyn AccessPolicy>,
-    caches: AuditCaches<'_>,
+    mut caches: AuditCaches<'_>,
 ) -> Result<Decision> {
-    record_open_identity(
-        metadata,
-        target_path,
-        object,
-        generation,
-        caches.identities,
-        caches.processes,
-    );
-    let access_kinds = access_kinds(metadata.mask);
-    let Some(first_access) = access_kinds.first().copied() else {
+    let Some((access_kinds, process)) =
+        record_identity_and_select_process(metadata, target_path, object, generation, &mut caches)
+    else {
         return Ok(Decision::Allow);
     };
-
-    let process = caches
-        .identities
-        .take(metadata.pid, object)
-        .or_else(|| generation.and_then(|generation| caches.processes.get(generation)))
-        .unwrap_or_else(|| inspect_process_or_unknown(metadata.pid, target_path, first_access));
     for access in access_kinds {
         decide_event(metadata.pid, &process, target_path, access, learner, policy)?;
     }
@@ -87,28 +74,15 @@ pub(super) fn decide_metadata_prompt(
     generation: Option<ProcessGeneration>,
     evaluation: &mut AuditEvaluation<'_, '_>,
     policy: &mut dyn AccessPolicy,
-    caches: AuditCaches<'_>,
+    mut caches: AuditCaches<'_>,
 ) -> Result<Decision> {
-    record_open_identity(
-        metadata,
-        target_path,
-        object,
-        generation,
-        caches.identities,
-        caches.processes,
-    );
-    let access_kinds = access_kinds(metadata.mask);
-    let Some(first_access) = access_kinds.first().copied() else {
+    let Some((access_kinds, process)) =
+        record_identity_and_select_process(metadata, target_path, object, generation, &mut caches)
+    else {
         return Ok(Decision::Allow);
     };
-
-    let process = caches
-        .identities
-        .take(metadata.pid, object)
-        .or_else(|| generation.and_then(|generation| caches.processes.get(generation)))
-        .unwrap_or_else(|| inspect_process_or_unknown(metadata.pid, target_path, first_access));
     for access in access_kinds {
-        decide_prompt_event(
+        audit_prompt_event(
             metadata.pid,
             &process,
             target_path,
@@ -119,6 +93,32 @@ pub(super) fn decide_metadata_prompt(
     }
 
     Ok(Decision::Allow)
+}
+
+fn record_identity_and_select_process(
+    metadata: &fanotify_event_metadata,
+    target_path: &Path,
+    object: AuditObjectId,
+    generation: Option<ProcessGeneration>,
+    caches: &mut AuditCaches<'_>,
+) -> Option<(Vec<AccessKind>, ProcessIdentity)> {
+    record_open_identity(
+        metadata,
+        target_path,
+        object,
+        generation,
+        caches.identities,
+        caches.processes,
+    );
+    let access_kinds = access_kinds(metadata.mask);
+    let first_access = access_kinds.first().copied()?;
+    let process = caches
+        .identities
+        .take(metadata.pid, object)
+        .or_else(|| generation.and_then(|generation| caches.processes.get(generation)))
+        .unwrap_or_else(|| inspect_process_or_unknown(metadata.pid, target_path, first_access));
+
+    Some((access_kinds, process))
 }
 
 fn record_open_identity(
@@ -200,7 +200,7 @@ pub(super) fn decide_event(
     Ok(Decision::Allow)
 }
 
-fn decide_prompt_event(
+fn audit_prompt_event(
     pid: i32,
     process: &ProcessIdentity,
     target_path: &Path,
@@ -217,30 +217,53 @@ fn decide_prompt_event(
         access,
         policy_decision.clone(),
     );
-    if let (Decision::Prompt { .. }, Some(prompt)) = (&policy_decision, evaluation.prompt) {
-        let prompt_key =
-            super::PromptDecisionKey::new(process.executable.clone(), access, &policy_decision);
-        let user_decision = super::resolve_policy_decision(
-            prompt,
-            evaluation.prompt_cache,
-            prompt_key,
-            &subject,
-            target_path,
-            super::read_wayland_env(pid),
-            policy_decision.clone(),
-        )?;
-        super::log_audit_prompt_decision(
-            pid,
-            &subject.executable,
-            target_path,
-            access,
-            policy_decision,
-            user_decision,
-        );
-    }
+    prompt_on_policy_violation(
+        pid,
+        process,
+        &subject,
+        target_path,
+        access,
+        evaluation,
+        policy_decision,
+    )?;
     if let Some(learner) = evaluation.learner.as_mut() {
         learner.observe(&subject, target_path, access)?;
     }
 
     Ok(Decision::Allow)
+}
+
+fn prompt_on_policy_violation(
+    pid: i32,
+    process: &ProcessIdentity,
+    subject: &crate::policy::ProcessSubject,
+    target_path: &Path,
+    access: AccessKind,
+    evaluation: &mut AuditEvaluation<'_, '_>,
+    policy_decision: Decision,
+) -> Result<()> {
+    let (Decision::Prompt { .. }, Some(prompt)) = (&policy_decision, evaluation.prompt) else {
+        return Ok(());
+    };
+
+    let prompt_key =
+        super::PromptDecisionKey::new(process.executable.clone(), access, &policy_decision);
+    let user_decision = super::prompt_for_policy_decision(
+        prompt,
+        evaluation.prompt_cache,
+        prompt_key,
+        subject,
+        target_path,
+        super::read_wayland_env(pid),
+        policy_decision.clone(),
+    )?;
+    super::log_audit_prompt_decision(
+        pid,
+        &subject.executable,
+        target_path,
+        access,
+        policy_decision,
+        user_decision,
+    );
+    Ok(())
 }

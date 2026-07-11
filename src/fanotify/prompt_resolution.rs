@@ -22,7 +22,7 @@ impl PromptDecisionCache {
         self.decisions.get(key).cloned()
     }
 
-    fn insert(&mut self, key: PromptDecisionKey, decision: Decision) {
+    fn insert_allow_decision(&mut self, key: PromptDecisionKey, decision: Decision) {
         if !matches!(decision, Decision::Allow) {
             return;
         }
@@ -36,7 +36,7 @@ pub fn has_graphical_session(env: &HashMap<String, String>) -> bool {
         .is_some_and(|value| !value.is_empty())
 }
 
-pub fn resolve_policy_decision(
+pub fn prompt_for_policy_decision(
     prompt: &dyn Prompt,
     prompt_cache: &mut PromptDecisionCache,
     prompt_key: Option<PromptDecisionKey>,
@@ -62,25 +62,42 @@ pub fn resolve_policy_decision(
         return Ok(apply_default_decision(prompt_cache, prompt_key, *default));
     }
 
-    let default_decision = *default;
-    let request = PromptRequest {
+    let request = build_prompt_request(subject, target_path, reason, *default, env);
+    ask_and_cache_prompt(prompt, prompt_cache, prompt_key, &request)
+}
+
+fn build_prompt_request<'a>(
+    subject: &'a ProcessSubject,
+    target_path: &'a Path,
+    reason: DecisionReason,
+    default_decision: Decision,
+    env: HashMap<String, String>,
+) -> PromptRequest<'a> {
+    PromptRequest {
         subject,
         target_path,
         reason,
-        default_decision: default_decision.clone(),
+        default_decision,
         env,
-    };
+    }
+}
 
-    match prompt.ask(&request) {
+fn ask_and_cache_prompt(
+    prompt: &dyn Prompt,
+    prompt_cache: &mut PromptDecisionCache,
+    prompt_key: Option<PromptDecisionKey>,
+    request: &PromptRequest<'_>,
+) -> Result<Decision> {
+    match prompt.ask(request) {
         Ok(decision) => {
             cache_prompt_decision(prompt_cache, prompt_key, &decision);
             Ok(decision)
         }
         Err(error) => Ok(prompt_failure_decision(
-            subject,
-            target_path,
-            reason,
-            default_decision,
+            request.subject,
+            request.target_path,
+            request.reason,
+            request.default_decision.clone(),
             error,
         )),
     }
@@ -108,7 +125,7 @@ fn cache_prompt_decision(
     decision: &Decision,
 ) {
     if let Some(key) = prompt_key {
-        prompt_cache.insert(key, decision.clone());
+        prompt_cache.insert_allow_decision(key, decision.clone());
     }
 }
 

@@ -7,7 +7,7 @@ use super::{Mode, run};
 use super::{
     PromptDecisionCache, access_kind, audit_watch_mask, child_directories, ensure_event_descriptor,
     ensure_path_exists, guard_watch_mask, has_graphical_session, is_permission_event,
-    is_watched_path, resolve_policy_decision, response_code,
+    is_watched_path, prompt_for_policy_decision, response_code,
 };
 use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject};
 #[cfg(not(coverage))]
@@ -110,7 +110,7 @@ fn resolve_cat_prompt(
     target_path: &str,
 ) -> Decision {
     let policy_decision = prompt_decision("/etc/authd");
-    resolve_policy_decision(
+    prompt_for_policy_decision(
         prompt,
         cache,
         super::PromptDecisionKey::new(
@@ -171,7 +171,7 @@ fn resolve_applies_default_without_prompting_when_no_session() {
     let prompt = PanicPrompt;
     let mut cache = PromptDecisionCache::default();
 
-    let decision = resolve_policy_decision(
+    let decision = prompt_for_policy_decision(
         &prompt,
         &mut cache,
         None,

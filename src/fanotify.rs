@@ -47,7 +47,7 @@ pub struct PromptDecisionCache;
 #[cfg(test)]
 pub(super) use prompt_resolution::has_graphical_session;
 #[cfg(any(test, not(coverage)))]
-pub(super) use prompt_resolution::{PromptDecisionKey, resolve_policy_decision};
+pub(super) use prompt_resolution::{PromptDecisionKey, prompt_for_policy_decision};
 #[cfg(not(coverage))]
 use std::mem;
 #[cfg(any(test, not(coverage)))]
@@ -457,7 +457,7 @@ fn decide_guard_event(
         policy_decision.clone(),
     );
 
-    resolve_policy_decision(
+    prompt_for_policy_decision(
         prompt,
         prompt_cache,
         PromptDecisionKey::new(process.executable.clone(), access, &policy_decision),
