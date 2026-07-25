@@ -259,6 +259,11 @@ fn osso_config_allows_observed_application_workflows() {
             config_guard::policy::AccessKind::Read,
         ),
         (
+            "pi",
+            "/home/osso/.local/share/uv/tools/pyrun/bin/pyrun-jsonl",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
             "claude-bash-hoo",
             "/home/osso/.config/claude-bash-hook/hostrun.toml",
             config_guard::policy::AccessKind::Read,

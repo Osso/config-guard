@@ -941,6 +941,7 @@ allowed_subjects = ["tradebot-desktop"]
 path = "/home/osso/.local/share/uv"
 owner = "uv"
 allowed_subjects = [
+  "pi",
   "pyrun-jsonl",
   "python3.12",
   "uv",
