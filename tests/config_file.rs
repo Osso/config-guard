@@ -466,6 +466,11 @@ fn osso_config_keeps_ad_hoc_copy_and_search_tools_prompted() {
             config_guard::policy::AccessKind::Write,
         ),
         (
+            "cp",
+            "/etc/example.conf",
+            config_guard::policy::AccessKind::Write,
+        ),
+        (
             "rg",
             "/home/osso/.config/chromium/Local State",
             config_guard::policy::AccessKind::Read,

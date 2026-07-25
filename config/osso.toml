@@ -991,7 +991,6 @@ allowed_subjects = [
   "authsudo",
   "chmod",
   "chown",
-  "cp",
   "install",
   "ln",
   "mv",
