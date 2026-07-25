@@ -24,6 +24,10 @@ pub struct PromptRequest<'a> {
 
 pub trait Prompt {
     fn ask(&self, request: &PromptRequest<'_>) -> Result<Decision>;
+
+    fn requires_graphical_session(&self) -> bool {
+        true
+    }
 }
 
 pub struct NonInteractivePrompt {
@@ -159,6 +163,10 @@ impl Prompt for CommandPrompt {
             .with_context(|| format!("starting prompt command {}", self.command.display()))?;
 
         wait_for_prompt(&mut child, self.timeout, &request.default_decision)
+    }
+
+    fn requires_graphical_session(&self) -> bool {
+        false
     }
 }
 

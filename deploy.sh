@@ -5,9 +5,33 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 expected_home="/home/osso"
 config_target="${expected_home}/.config/config-guard/config.toml"
 service_target="/etc/systemd/system/config-guard.service"
+mode="audit"
+
+usage() {
+    echo "usage: $0 [--mode audit|guard]" >&2
+}
+
+validate_mode() {
+    case "$1" in
+        audit | guard) ;;
+        *)
+            echo "mode must be audit or guard: $1" >&2
+            exit 1
+            ;;
+    esac
+}
+
+service_source_for_mode() {
+    case "$1" in
+        audit) echo "${project_dir}/config/config-guard.service" ;;
+        guard) echo "${project_dir}/config/config-guard-guard.service" ;;
+    esac
+}
 
 install_system_service() {
-    local service_source="${project_dir}/config/config-guard.service"
+    local selected_mode="$1"
+    local service_source
+    service_source="$(service_source_for_mode "${selected_mode}")"
 
     if [[ "${EUID}" -ne 0 ]]; then
         echo "--install-system requires root" >&2
@@ -21,20 +45,32 @@ install_system_service() {
 }
 
 if [[ "${1:-}" == "--install-system" ]]; then
-    if [[ "$#" -ne 1 ]]; then
-        echo "usage: $0 --install-system" >&2
+    if [[ "$#" -ne 2 ]]; then
+        usage
         exit 1
     fi
-    install_system_service
+    mode="$2"
+    validate_mode "${mode}"
+    install_system_service "${mode}"
     exit 0
 fi
+
+if [[ "$#" -ne 0 ]]; then
+    if [[ "$#" -ne 2 || "$1" != "--mode" ]]; then
+        usage
+        exit 1
+    fi
+    mode="$2"
+fi
+validate_mode "${mode}"
 
 if [[ "${HOME}" != "${expected_home}" ]]; then
     echo "config-guard deployment requires HOME=${expected_home}; got ${HOME}" >&2
     exit 1
 fi
 
-verify_audit_service() {
+verify_service() {
+    local selected_mode="$1"
     local exec_start
     local main_pid
     local restart_count
@@ -54,8 +90,8 @@ verify_audit_service() {
         exit 1
     fi
 
-    if [[ "${exec_start}" != *"/config-guard audit "* ]]; then
-        echo "config-guard service is not running audit mode: ${exec_start}" >&2
+    if [[ "${exec_start}" != *"/config-guard ${selected_mode} "* ]]; then
+        echo "config-guard service is not running ${selected_mode} mode: ${exec_start}" >&2
         exit 1
     fi
 
@@ -75,11 +111,11 @@ cd "${project_dir}"
 cargo install --force --path . --root "${HOME}/.cargo"
 
 install -Dm600 "config/osso.toml" "${config_target}"
-authsudo "${project_dir}/deploy.sh" --install-system
+authsudo "${project_dir}/deploy.sh" --install-system "${mode}"
 
-verify_audit_service
+verify_service "${mode}"
 
 echo "Installed config-guard -> ${HOME}/.cargo/bin/config-guard"
 echo "Installed config -> ${config_target}"
 echo "Installed service -> ${service_target}"
-echo "Audit service enabled and active"
+echo "Config Guard ${mode} service enabled and active"

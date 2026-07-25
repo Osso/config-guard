@@ -58,7 +58,7 @@ pub fn prompt_for_policy_decision(
         return Ok(decision);
     }
 
-    if !has_graphical_session(&env) {
+    if prompt.requires_graphical_session() && !has_graphical_session(&env) {
         return Ok(apply_default_decision(prompt_cache, prompt_key, *default));
     }
 

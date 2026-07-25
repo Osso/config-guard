@@ -113,6 +113,44 @@ fn guard_invokes_prompt_command_for_cross_owner_access() {
 
 #[test]
 #[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
+fn guard_blocks_access_when_prompt_denies() {
+    require_root();
+    let fixture = RootFixture::new("guard_blocks_access_when_prompt_denies");
+    fixture.set_prompt_exit_code(1);
+    let mut guard = ConfigGuardProcess::start([
+        "guard",
+        "--path",
+        fixture.watch_root().to_str().unwrap(),
+        "--config",
+        fixture.config_path().to_str().unwrap(),
+        "--prompt-command",
+        fixture.prompt_command_path().to_str().unwrap(),
+        "--timeout-seconds",
+        "1",
+    ]);
+
+    guard.wait_for_line("watching ");
+    let output = run_with_timeout(
+        Command::new("cat").arg(fixture.probe_path()),
+        TIMEOUT,
+        "denied cat probe under guard",
+    );
+
+    assert!(
+        !output.status.success(),
+        "denied cat should fail: {output:?}"
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "denied cat returned protected data"
+    );
+    let forbid = guard.wait_for_line("FORBID audit");
+    assert!(forbid.contains("exe=cat"), "{forbid}");
+    assert!(forbid.contains("reason=CrossOwnerRead"), "{forbid}");
+}
+
+#[test]
+#[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
 fn guard_reuses_prompt_answer_for_same_process_and_scope() {
     require_root();
     let fixture = RootFixture::new("guard_reuses_prompt_answer_for_same_process_and_scope");
@@ -483,7 +521,8 @@ impl RootFixture {
         fs::write(self.second_probe_path(), "second probe\n").expect("write second probe");
         fs::write(self.other_probe_path(), "other probe\n").expect("write other probe");
         fs::write(self.config_path(), self.config()).expect("write config");
-        fs::write(self.prompt_command_path(), self.prompt_command()).expect("write prompt command");
+        fs::write(self.prompt_command_path(), self.prompt_command(0))
+            .expect("write prompt command");
         make_executable(&self.prompt_command_path());
     }
 
@@ -527,6 +566,12 @@ impl RootFixture {
         self.root.join("prompt.log")
     }
 
+    fn set_prompt_exit_code(&self, exit_code: u8) {
+        fs::write(self.prompt_command_path(), self.prompt_command(exit_code))
+            .expect("update prompt command");
+        make_executable(&self.prompt_command_path());
+    }
+
     fn config(&self) -> String {
         format!(
             "fail_open = true\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"not-cat\"\nallowed_subjects = []\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"not-cat\"\nallowed_subjects = []\n",
@@ -535,9 +580,9 @@ impl RootFixture {
         )
     }
 
-    fn prompt_command(&self) -> String {
+    fn prompt_command(&self, exit_code: u8) -> String {
         format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" >> '{}'\nexit 0\n",
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" >> '{}'\nexit {exit_code}\n",
             self.prompt_log_path().display()
         )
     }

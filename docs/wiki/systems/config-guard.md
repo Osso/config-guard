@@ -17,7 +17,7 @@ Audit requests an unlimited kernel event queue because the service runs with `CA
 
 If process inspection fails, Config Guard logs the identity failure and evaluates policy using an explicit `unknown` subject. Unknown identities are not eligible for prompt-decision caching.
 
-The installed systemd unit runs `audit`. `audit-prompt` is a manual diagnostic mode and is not used by deployment. Switching to `guard` is a deliberate post-burn-in change, not part of normal deployment.
+Deployment defaults to `audit`. Passing `--mode guard` installs the guard unit after an explicit post-burn-in decision. `audit-prompt` remains a manual diagnostic mode and is never installed as the system service.
 
 ## Testing the session dialog
 
@@ -25,18 +25,19 @@ Run `test-prompt` for one direct authd/session-dialog request, or run `audit-pro
 
 ## Deployment
 
-Run `./deploy.sh` from the repository root. It:
+Run `./deploy.sh` from the repository root for audit mode, or `./deploy.sh --mode guard` for enforcement. It:
 
-1. Builds and installs the release binary to `~/.cargo/bin/config-guard`.
-2. Requires `HOME=/home/osso` and installs `config/osso.toml` to `/home/osso/.config/config-guard/config.toml` with mode `0600`, matching the systemd unit exactly.
-3. Uses one pooled `authsudo` invocation to install `config/config-guard.service` under `/etc/systemd/system`, reload systemd, enable the audit service at boot, and restart it. The deployed audit scope explicitly includes `~/.ssh`. Deployment never enables or starts guard mode; guard remains disabled.
-4. Keeps build, user configuration install, and post-restart health checks unprivileged.
-5. Relies on `Type=notify`: `systemctl restart` does not complete until the daemon sends `READY=1`, which happens only after all monitoring marks are installed.
-6. Waits six additional seconds, then verifies boot enablement, active state, `Type=notify`, audit-mode `ExecStart`, a nonzero main PID, and zero restarts.
+1. Validates the selected mode before building or changing host state.
+2. Builds and installs the release binary to `~/.cargo/bin/config-guard`.
+3. Requires `HOME=/home/osso` and installs `config/osso.toml` to `/home/osso/.config/config-guard/config.toml` with mode `0600`, matching the systemd unit exactly.
+4. Uses one pooled `authsudo` invocation to install the audit or guard unit under `/etc/systemd/system/config-guard.service`, reload systemd, enable it at boot, and restart it. Both scopes explicitly include `~/.ssh`.
+5. Keeps build, user configuration install, and post-restart health checks unprivileged.
+6. Relies on `Type=notify`: `systemctl restart` does not complete until the daemon sends `READY=1`, which happens only after all monitoring marks are installed.
+7. Waits six additional seconds, then verifies boot enablement, active state, `Type=notify`, the selected-mode `ExecStart`, a nonzero main PID, and zero restarts.
 
 Deployment fails if any bounded post-restart check fails. This proves initialized startup health and short-window stability, not long-term stability or policy completeness.
 
-## Audit verification
+## Service verification
 
 Use read-only checks after deployment:
 
@@ -47,17 +48,24 @@ systemctl show config-guard.service -p Type -p ExecStart -p ExecMainStatus -p Ma
 journalctl -u config-guard.service -b
 ```
 
-Expected state: `enabled`, `active`, `Type=notify`, nonzero `MainPID`, `NRestarts=0`, and an audit-mode `ExecStart`.
+Expected state: `enabled`, `active`, `Type=notify`, nonzero `MainPID`, `NRestarts=0`, and an `ExecStart` matching the selected mode.
 
-Review `FORBID audit` entries during burn-in. Add durable policy allows only for stable owners or repeatable workflows; do not encode one-off copy commands.
+During audit burn-in, review `FORBID audit` entries. Add durable policy allows only for stable owners or repeatable workflows; do not encode one-off copy commands.
 
-## Guard transition
+## Guard transition and rollback
 
-Before changing the unit from `audit` to `guard`:
+Before running `./deploy.sh --mode guard`:
 
 1. Complete an audit burn-in with normal workloads.
 2. Review repeated violations and update policy intentionally.
-3. Decide whether `fail_open = true` remains acceptable. Current policy defaults to allow on prompt errors and for accesses without a graphical session, so guard mode is not strict fail-closed enforcement.
-4. Resolve guard's current limitations: new directories are not dynamically marked, and write-specific decisions occur after the write closes.
-5. Run privileged fanotify integration tests.
-6. Deploy, exercise controlled cross-owner reads and writes, and inspect service logs.
+3. Run privileged fanotify integration tests, including an explicit denied open.
+4. Accept that `fail_open = true` allows accesses when prompting fails or no graphical session is available. Guard mode is enforcement-capable, not strict fail-closed enforcement.
+5. Accept the current coverage limits: directories created after startup are not marked, and write-specific classification arrives only after a permitted write closes.
+
+After deployment, verify the selected `ExecStart`, exercise controlled allowed and denied reads, and inspect service health. Roll back without editing system files manually:
+
+```text
+./deploy.sh --mode audit
+```
+
+Rollback rebuilds and reinstalls the current binary and policy, replaces the unit with `config/config-guard.service`, restarts the service, and verifies audit mode.

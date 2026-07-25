@@ -62,6 +62,18 @@ impl AccessPolicy for RecordingPolicy {
     }
 }
 
+struct HeadlessPrompt;
+
+impl Prompt for HeadlessPrompt {
+    fn ask(&self, _request: &PromptRequest<'_>) -> anyhow::Result<Decision> {
+        Ok(Decision::Deny)
+    }
+
+    fn requires_graphical_session(&self) -> bool {
+        false
+    }
+}
+
 struct CountingPrompt {
     decision: Decision,
     calls: Cell<usize>,
@@ -181,6 +193,30 @@ fn resolve_applies_default_without_prompting_when_no_session() {
         Decision::Prompt {
             reason: DecisionReason::CrossOwnerRead,
             default: Box::new(Decision::Deny),
+            scope: PathBuf::from("/etc/authd"),
+        },
+    )
+    .expect("resolve decision");
+
+    assert_eq!(decision, Decision::Deny);
+}
+
+#[test]
+fn resolve_invokes_headless_prompt_without_graphical_session() {
+    let subject = cat_subject();
+    let prompt = HeadlessPrompt;
+    let mut cache = PromptDecisionCache::default();
+
+    let decision = prompt_for_policy_decision(
+        &prompt,
+        &mut cache,
+        None,
+        &subject,
+        Path::new("/etc/authd/policies.d/wheel.toml"),
+        HashMap::new(),
+        Decision::Prompt {
+            reason: DecisionReason::CrossOwnerRead,
+            default: Box::new(Decision::Allow),
             scope: PathBuf::from("/etc/authd"),
         },
     )

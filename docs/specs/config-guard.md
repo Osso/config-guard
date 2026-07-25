@@ -28,6 +28,7 @@ Audit and guard runtime:
 - [x] In audit mode, log policy violations as `FORBID audit` lines for cross-owner access without denying the operation.
 - [x] In audit-prompt mode, invoke the configured session prompt for policy Prompt decisions, log the user's decision as `FORBID audit-prompt`, and always allow the underlying access.
 - [x] In guard mode, invoke the configured prompt command for cross-owner access.
+- [x] In guard mode, block an open when the prompt explicitly denies it.
 - [x] Reuse an approved prompt answer for the same executable, access kind, reason, and policy scope.
 - [x] Do not cache explicit prompt denials as durable executable approvals.
 - [x] Watch multiple roots from one process.
@@ -44,8 +45,8 @@ Audit and guard runtime:
 - [x] In guard mode, skip excluded directories when marking watched trees.
 - [x] Treat fanotify queue overflow or an invalid event descriptor as a fatal monitoring error instead of silently losing coverage.
 - [x] Evaluate policy with an unknown subject when process inspection fails instead of bypassing the policy.
-- [x] Make deployment enable and restart the systemd unit in audit mode, wait for systemd readiness, then check its mode, active process, restart count, and boot enablement.
-- [ ] Keep guard disabled until audit burn-in is complete; document the manual systemd transition and rollback, including its future-directory and post-write-only limitations.
+- [x] Make deployment explicitly select audit or guard mode, wait for systemd readiness, then check the selected mode, active process, restart count, and boot enablement.
+- [x] Default deployment to audit mode and provide explicit guard transition and audit rollback commands while documenting future-directory, fail-open, and post-write limitations.
 - [x] Keep audit-prompt separate from the deployed audit service so dialog testing cannot enforce access.
 
 Process identity:
@@ -93,7 +94,7 @@ CLI and deployment:
 - [x] Require at least one `--path` for `audit`, `audit-prompt`, and `guard`.
 - [x] Support `--exclude-path` for watched trees.
 - [x] Support a configurable policy path through `--config`, falling back to the default user config path when present.
-- [x] Deploy the release binary, local policy config, and systemd service through `deploy.sh`.
+- [x] Deploy the release binary, local policy config, and selected audit or guard systemd service through `deploy.sh`.
 
 ## How it works
 
@@ -120,8 +121,9 @@ CLI and deployment:
 - `src/reconcile.rs` - config-home inventory, association/archive planning, and apply-mode config/archive updates.
 - `src/lib.rs` - public module exports for integration tests.
 - `config/osso.toml` - local policy used by the deployed audit service.
-- `config/config-guard.service` - systemd unit for the local guard service.
-- `deploy.sh` - release build and install path for the binary, policy, and service file.
+- `config/config-guard.service` - default audit-mode systemd unit.
+- `config/config-guard-guard.service` - explicit enforcement-mode systemd unit.
+- `deploy.sh` - release build and explicit audit/guard install path for the binary, policy, and selected service file.
 - `run-tests.sh` - project verification script.
 
 ## Tests asserting this spec
@@ -141,7 +143,7 @@ CLI and deployment:
 ## Known gaps (current cycle)
 
 - [ ] Add machine-checkable coverage for the CLI subcommand surface and default config-path behavior.
-- [ ] Complete audit burn-in and review observed violations before enabling guard mode.
+- [x] Complete audit burn-in, add durable observed workflow rules, and enable guard only through an explicit deployment choice.
 - [ ] Add a policy review checklist for turning observed audit lines into durable allow rules, including the "no ad hoc cp allow" rule.
 
 ## Out of scope
