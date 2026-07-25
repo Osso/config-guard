@@ -135,6 +135,16 @@ owner = "firefox"
 allowed_subjects = ["firefox-profile-backup"]
 
 [[owned_paths]]
+path = "/home/osso/.local/state/pi"
+owner = "pi"
+allowed_subjects = []
+
+[[owned_paths]]
+path = "/home/osso/.local/share/pi"
+owner = "pi"
+allowed_subjects = []
+
+[[owned_paths]]
 path = "/home/osso/.local/share/rtk"
 owner = "rtk"
 allowed_subjects = ["rtk"]

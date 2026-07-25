@@ -21,6 +21,51 @@ fn osso_config_allows_known_owner() {
 }
 
 #[test]
+fn osso_config_allows_pi_state_access() {
+    let policy = Policy::new(parse_osso_config());
+
+    let decision = policy.decide(
+        &subject("pi"),
+        "/home/osso/.local/state/pi/control.sqlite-wal",
+        config_guard::policy::AccessKind::Write,
+    );
+
+    assert_eq!(decision, Decision::Allow);
+}
+
+#[test]
+fn osso_config_allows_pi_installation_access() {
+    let policy = Policy::new(parse_osso_config());
+
+    let decision = policy.decide(
+        &subject("pi"),
+        "/home/osso/.local/share/pi/package.json",
+        config_guard::policy::AccessKind::Read,
+    );
+
+    assert_eq!(decision, Decision::Allow);
+}
+
+#[test]
+fn osso_config_does_not_allow_generic_node_for_pi_state() {
+    let policy = Policy::new(parse_osso_config());
+
+    let decision = policy.decide(
+        &subject("node"),
+        "/home/osso/.local/state/pi/control.sqlite-wal",
+        config_guard::policy::AccessKind::Write,
+    );
+
+    assert!(matches!(
+        decision,
+        Decision::Prompt {
+            reason: DecisionReason::CrossOwnerWrite,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn osso_config_prompts_for_dev_tool_reading_sensitive_config() {
     let policy = Policy::new(parse_osso_config());
     let subject = subject("codex");
