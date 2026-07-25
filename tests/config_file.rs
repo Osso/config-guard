@@ -249,6 +249,234 @@ fn osso_config_allows_k9s_state_access() {
 }
 
 #[test]
+fn osso_config_allows_observed_application_workflows() {
+    let policy = Policy::new(parse_osso_config());
+
+    let cases = [
+        (
+            "pyrun-jsonl",
+            "/home/osso/.local/share/uv/python/cpython/bin/python3.12",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "claude-bash-hoo",
+            "/home/osso/.config/claude-bash-hook/hostrun.toml",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "php",
+            "/home/osso/.config/composer/auth.json",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "groundcover-cli",
+            "/home/osso/.config/groundcover/config.json",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "Enpass",
+            "/home/osso/.config/sinew.in/Enpass.conf.lock",
+            config_guard::policy::AccessKind::Write,
+        ),
+        (
+            "chrome_crashpad_handler",
+            "/home/osso/.config/chromium/Crash",
+            config_guard::policy::AccessKind::Write,
+        ),
+        (
+            "chrome_crashpad_handler",
+            "/home/osso/.config/vivaldi/Crash",
+            config_guard::policy::AccessKind::Write,
+        ),
+        (
+            "firefox-profile-backup",
+            "/home/osso/.local/share/firefox-backup/.tmp/key4.db",
+            config_guard::policy::AccessKind::Write,
+        ),
+        (
+            "tradebot",
+            "/home/osso/.local/share/tradebot/tradebot.sqlite3-journal",
+            config_guard::policy::AccessKind::Write,
+        ),
+        (
+            "tradebot-desktop",
+            "/home/osso/.local/share/tradebot/tradebot.sqlite3",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "tradebot-desktop",
+            "/home/osso/.local/share/gvfs-metadata/root",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "tradebot-desktop",
+            "/home/osso/.config/dconf/user",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "tradebot-desktop",
+            "/home/osso/.local/share/mime/mime.cache",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "WebKitNetworkProcess",
+            "/home/osso/.local/share/com.ossonet.tradebot.performance/hsts-storage.sqlite",
+            config_guard::policy::AccessKind::Write,
+        ),
+        (
+            "WebKitNetworkProcess",
+            "/home/osso/.config/dconf/user",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "containerd",
+            "/var/lib/containerd/io.containerd.content.v1.content/blobs/sha256/test",
+            config_guard::policy::AccessKind::Write,
+        ),
+    ];
+
+    for (owner, path, access) in cases {
+        assert_eq!(
+            policy.decide(&subject(owner), path, access),
+            Decision::Allow,
+            "{owner} should access {path}",
+        );
+    }
+}
+
+#[test]
+fn osso_config_allows_observed_system_workflows() {
+    let policy = Policy::new(parse_osso_config());
+
+    let cases = [
+        (
+            "utempter",
+            "/var/log/wtmp",
+            config_guard::policy::AccessKind::Write,
+        ),
+        (
+            "systemd-xdg-autostart-generator",
+            "/etc/xdg/autostart/blueman.desktop",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "30-systemd-environment-d-generator",
+            "/etc/environment",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "appfw",
+            "/etc/appfw/rules.d/defaults.toml",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "sudo",
+            "/etc/sudo.conf",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "sudo",
+            "/etc/sudoers",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "sudo",
+            "/etc/pam.d/system-auth",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "runuser",
+            "/etc/pam.d/runuser",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "runuser",
+            "/var/lib/lastlog/lastlog2.db-journal",
+            config_guard::policy::AccessKind::Write,
+        ),
+        (
+            "quickshell",
+            "/etc/pam.d/system-login",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "unix_chkpwd",
+            "/etc/shadow",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "pacman-conf",
+            "/etc/pacman.conf",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "pacman-conf",
+            "/etc/pacman.d/mirrorlist",
+            config_guard::policy::AccessKind::Read,
+        ),
+        (
+            "sensors",
+            "/etc/sensors3.conf",
+            config_guard::policy::AccessKind::Read,
+        ),
+    ];
+
+    for (owner, path, access) in cases {
+        assert_eq!(
+            policy.decide(&subject(owner), path, access),
+            Decision::Allow,
+            "{owner} should access {path}",
+        );
+    }
+}
+
+#[test]
+fn osso_config_allows_firefox_backup_sqlite_only_with_backup_ancestor() {
+    let policy = Policy::new(parse_osso_config());
+    let path = "/home/osso/.local/share/firefox-backup/current/cookies.sqlite";
+
+    let allowed = policy.decide(
+        &subject_with_ancestor("sqlite3", "/usr/bin/firefox-profile-backup"),
+        path,
+        config_guard::policy::AccessKind::Write,
+    );
+    let untrusted = policy.decide(
+        &subject_with_ancestor("sqlite3", "/usr/bin/bash"),
+        path,
+        config_guard::policy::AccessKind::Write,
+    );
+
+    assert_eq!(allowed, Decision::Allow);
+    assert!(matches!(untrusted, Decision::Prompt { .. }));
+}
+
+#[test]
+fn osso_config_keeps_ad_hoc_copy_and_search_tools_prompted() {
+    let policy = Policy::new(parse_osso_config());
+
+    for (tool, path, access) in [
+        (
+            "cp",
+            "/home/osso/.local/share/pi.tmp/pi",
+            config_guard::policy::AccessKind::Write,
+        ),
+        (
+            "rg",
+            "/home/osso/.config/chromium/Local State",
+            config_guard::policy::AccessKind::Read,
+        ),
+    ] {
+        assert!(
+            matches!(
+                policy.decide(&subject(tool), path, access),
+                Decision::Prompt { .. }
+            ),
+            "{tool} should still prompt for {path}",
+        );
+    }
+}
+
+#[test]
 fn osso_config_guards_db_credential_dirs() {
     let policy = Policy::new(parse_osso_config());
 

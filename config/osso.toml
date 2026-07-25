@@ -160,6 +160,7 @@ owner = "gvfsd-metadata"
 allowed_subjects = [
   "gvfsd-metadata",
   "thunar",
+  "tradebot-desktop",
 ]
 
 [[owned_paths]]
@@ -288,7 +289,7 @@ allowed_subjects = []
 [[owned_paths]]
 path = "/home/osso/.config/sinew.in"
 owner = "enpass"
-allowed_subjects = ["enpass-gui", "enpass-sandboxed"]
+allowed_subjects = ["Enpass", "enpass-gui", "enpass-sandboxed"]
 
 [[owned_paths]]
 path = "/home/osso/.config/outlook-cli"
@@ -612,12 +613,12 @@ allowed_subjects = []
 [[owned_paths]]
 path = "/home/osso/.config/chromium"
 owner = "chromium"
-allowed_subjects = []
+allowed_subjects = ["chrome_crashpad_handler"]
 
 [[owned_paths]]
 path = "/home/osso/.config/claude-bash-hook"
 owner = "claude-bash-hook"
-allowed_subjects = []
+allowed_subjects = ["claude-bash-hoo"]
 
 [[owned_paths]]
 path = "/home/osso/.config/code-index"
@@ -637,7 +638,7 @@ allowed_subjects = []
 [[owned_paths]]
 path = "/home/osso/.config/composer"
 owner = "composer"
-allowed_subjects = []
+allowed_subjects = ["php"]
 
 [[owned_paths]]
 path = "/home/osso/.config/config-guard"
@@ -648,9 +649,11 @@ allowed_subjects = []
 path = "/home/osso/.config/dconf"
 owner = "dconf"
 allowed_subjects = [
+  "WebKitNetworkProcess",
   "gvfs-udisks2-volume-monitor",
   "gsettings",
   "thunar",
+  "tradebot-desktop",
   "vivaldi-bin",
   "xdg-desktop-portal-gtk",
 ]
@@ -698,7 +701,7 @@ allowed_subjects = []
 [[owned_paths]]
 path = "/home/osso/.config/groundcover"
 owner = "groundcover"
-allowed_subjects = []
+allowed_subjects = ["groundcover-cli"]
 
 [[owned_paths]]
 path = "/home/osso/.config/gthumb"
@@ -858,7 +861,7 @@ allowed_subjects = []
 [[owned_paths]]
 path = "/home/osso/.config/vivaldi"
 owner = "vivaldi"
-allowed_subjects = ["vivaldi-bin"]
+allowed_subjects = ["chrome_crashpad_handler", "vivaldi-bin"]
 
 [[owned_paths]]
 path = "/home/osso/.config/wireplumber"
@@ -920,9 +923,25 @@ owner = "trash"
 allowed_subjects = ["gvfsd-trash"]
 
 [[owned_paths]]
+path = "/home/osso/.local/share/firefox-backup"
+owner = "firefox-profile-backup"
+allowed_subjects = ["with-ancestor:sqlite3|firefox-profile-backup"]
+
+[[owned_paths]]
+path = "/home/osso/.local/share/tradebot"
+owner = "tradebot"
+allowed_subjects = ["tradebot-desktop"]
+
+[[owned_paths]]
+path = "/home/osso/.local/share/com.ossonet.tradebot.performance"
+owner = "WebKitNetworkProcess"
+allowed_subjects = ["tradebot-desktop"]
+
+[[owned_paths]]
 path = "/home/osso/.local/share/uv"
 owner = "uv"
 allowed_subjects = [
+  "pyrun-jsonl",
   "python3.12",
   "uv",
 ]
@@ -934,7 +953,7 @@ allowed_subjects = ["gnome-keyring-daemon"]
 
 [[shared_paths]]
 path = "/home/osso/.local/share/mime"
-allowed_subjects = ["thunar"]
+allowed_subjects = ["thunar", "tradebot-desktop"]
 access = ["read"]
 
 [[shared_paths]]
@@ -1146,21 +1165,57 @@ allowed_subjects = ["udisksd"]
 access = ["read"]
 
 [[shared_paths]]
+path = "/etc/environment"
+allowed_subjects = ["30-systemd-environment-d-generator"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/xdg/autostart"
+allowed_subjects = ["systemd-xdg-autostart-generator"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/appfw"
+allowed_subjects = ["appfw"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/sudo.conf"
+allowed_subjects = ["sudo"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/pacman.conf"
+allowed_subjects = ["pacman-conf"]
+access = ["read"]
+
+[[shared_paths]]
+path = "/etc/sensors3.conf"
+allowed_subjects = ["sensors"]
+access = ["read"]
+
+[[shared_paths]]
 path = "/etc/shadow"
 allowed_subjects = [
   "accounts-daemon",
+  "exe:/usr/bin/unix_chkpwd",
   "sentinel",
 ]
 access = ["read"]
 
 [[shared_paths]]
 path = "/etc/sudoers"
-allowed_subjects = ["sentinel"]
+allowed_subjects = ["sentinel", "sudo"]
 access = ["read"]
 
 [[shared_paths]]
 path = "/etc/pam.d"
-allowed_subjects = ["sentinel"]
+allowed_subjects = [
+  "quickshell",
+  "runuser",
+  "sentinel",
+  "sudo",
+]
 access = ["read"]
 
 [[shared_paths]]
@@ -1254,9 +1309,19 @@ allowed_subjects = [
 access = ["read"]
 
 [[shared_paths]]
+path = "/var/lib/lastlog"
+allowed_subjects = ["runuser"]
+access = ["write"]
+
+[[shared_paths]]
 path = "/var/log/wtmp"
 allowed_subjects = ["accounts-daemon"]
 access = ["read"]
+
+[[shared_paths]]
+path = "/var/log/wtmp"
+allowed_subjects = ["utempter"]
+access = ["write"]
 
 [[shared_paths]]
 path = "/etc/modprobe.d"
@@ -1356,6 +1421,7 @@ path = "/etc/pacman.d"
 owner = "pacman"
 allowed_subjects = [
   "pacman",
+  "pacman-conf",
   "arch",
   "gpg",
   "gpg-agent",
@@ -1379,6 +1445,11 @@ allowed_subjects = [
   "pacman",
   "arch",
 ]
+
+[[owned_paths]]
+path = "/var/lib/containerd"
+owner = "containerd"
+allowed_subjects = []
 
 [[owned_paths]]
 path = "/var"
