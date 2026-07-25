@@ -59,8 +59,9 @@ Before running `./deploy.sh --mode guard`:
 1. Complete an audit burn-in with normal workloads.
 2. Review repeated violations and update policy intentionally.
 3. Run privileged fanotify integration tests, including an explicit denied open.
-4. Accept that `fail_open = true` allows accesses when prompting fails or no graphical session is available. Guard mode is enforcement-capable, not strict fail-closed enforcement.
-5. Accept the current coverage limits: directories created after startup are not marked, and write-specific classification arrives only after a permitted write closes.
+4. Accept that `fail_open = true` allows accesses when prompting fails or no graphical session is available. The deployed unit uses authd, whose graphical prompt is skipped without `WAYLAND_DISPLAY` and therefore uses the configured default. Guard mode is enforcement-capable, not strict fail-closed enforcement.
+5. If `--prompt-command` is supplied for a manual guard run, it runs even without a graphical session: exit status 0 allows, exit status 1 denies, and a start failure, timeout, or other status uses the configured default. The deployed guard unit does not supply `--prompt-command`.
+6. Accept the current coverage limits: directories created after startup are not marked, and write-specific classification arrives only after a permitted write closes.
 
 After deployment, verify the selected `ExecStart`, exercise controlled allowed and denied reads, and inspect service health. Roll back without editing system files manually:
 
