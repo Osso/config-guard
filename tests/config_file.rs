@@ -456,18 +456,18 @@ fn osso_config_allows_firefox_backup_sqlite_only_with_backup_ancestor() {
 }
 
 #[test]
-fn osso_config_keeps_ad_hoc_copy_and_search_tools_prompted() {
+fn osso_config_keeps_ad_hoc_tools_prompted_for_explicit_protected_paths() {
     let policy = Policy::new(parse_osso_config());
 
     for (tool, path, access) in [
         (
             "cp",
-            "/home/osso/.local/share/pi.tmp/pi",
+            "/etc/config-guard/config.toml",
             config_guard::policy::AccessKind::Write,
         ),
         (
             "cp",
-            "/etc/example.conf",
+            "/var/lib/pacman/local/example/desc",
             config_guard::policy::AccessKind::Write,
         ),
         (
@@ -483,6 +483,27 @@ fn osso_config_keeps_ad_hoc_copy_and_search_tools_prompted() {
             ),
             "{tool} should still prompt for {path}",
         );
+    }
+}
+
+#[test]
+fn osso_config_allows_unlisted_paths_inside_monitored_roots() {
+    let policy = Policy::new(parse_osso_config());
+
+    for path in [
+        "/home/osso/.local/share/unlisted-app/state.db",
+        "/home/osso/.local/state/unlisted-app/state.json",
+        "/etc/example.conf",
+        "/var/lib/unlisted-app/state.db",
+        "/var/log/unlisted-app.log",
+    ] {
+        let decision = policy.decide(
+            &subject("cp"),
+            path,
+            config_guard::policy::AccessKind::Write,
+        );
+
+        assert_eq!(decision, Decision::Allow, "{path} should be unowned");
     }
 }
 

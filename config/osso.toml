@@ -874,32 +874,6 @@ owner = "yazi"
 allowed_subjects = []
 
 [[owned_paths]]
-path = "/home/osso/.local/share"
-owner = "local-share"
-allowed_subjects = [
-  "bash",
-  "zsh",
-  "fish",
-  "install",
-  "mkdir",
-  "mv",
-  "rm",
-]
-
-[[owned_paths]]
-path = "/home/osso/.local/state"
-owner = "local-state"
-allowed_subjects = [
-  "bash",
-  "zsh",
-  "fish",
-  "install",
-  "mkdir",
-  "mv",
-  "rm",
-]
-
-[[owned_paths]]
 path = "/home/osso/.local/share/applications"
 owner = "desktop-applications"
 allowed_subjects = [
@@ -981,21 +955,6 @@ owner = "codex-update-manager"
 allowed_subjects = [
   "codex-update-manager",
   "exe:/opt/codex-desktop/electron",
-]
-
-[[owned_paths]]
-path = "/etc"
-owner = "root"
-allowed_subjects = [
-  "arch",
-  "authsudo",
-  "chmod",
-  "chown",
-  "install",
-  "ln",
-  "mv",
-  "pacman",
-  "sudo-edit",
 ]
 
 [[shared_paths]]
@@ -1452,17 +1411,6 @@ owner = "containerd"
 allowed_subjects = []
 
 [[owned_paths]]
-path = "/var"
-owner = "var"
-allowed_subjects = [
-  "systemd",
-  "systemd-journald",
-  "journald",
-  "pacman",
-  "arch",
-]
-
-[[owned_paths]]
 path = "/var/cache/pacman"
 owner = "pacman-cache"
 allowed_subjects = [
@@ -1491,16 +1439,6 @@ path = "/var/lib/upower"
 owner = "upowerd"
 allowed_subjects = [
   "upowerd",
-]
-
-[[owned_paths]]
-path = "/var/log"
-owner = "logs"
-allowed_subjects = [
-  "systemd-journald",
-  "journald",
-  "logrotate",
-  "journalctl",
 ]
 
 [[sensitive_paths]]
