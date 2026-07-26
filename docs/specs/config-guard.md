@@ -12,6 +12,7 @@ Policy decisions:
 - [x] Let ancestor-aware executable-prefix rules allow spawned shell helpers only when the expected ancestor is present.
 - [x] Let ancestor-aware subject rules allow helper binaries only when a trusted parent or ancestor is present.
 - [x] Choose the most specific owned-path rule when multiple owned paths match.
+- [x] Protect only explicitly listed `owned_paths`; generic descendants of monitored roots remain unowned and allowed when no other policy rule matches.
 - [x] Allow configured shared paths for common desktop processes.
 - [x] Let shared paths allow all subjects with `*`.
 - [x] Enforce shared-path access kinds, including read-only shared paths.
@@ -32,6 +33,7 @@ Audit and guard runtime:
 - [x] Reuse an approved prompt answer for the same executable, access kind, reason, and policy scope.
 - [x] Do not cache explicit prompt denials as durable executable approvals.
 - [x] Watch multiple roots from one process.
+- [x] Keep fanotify monitoring scope independent from policy ownership scope: broad monitored roots provide observation coverage but do not implicitly protect every descendant.
 - [x] Canonicalize configured roots and exclusions before monitoring so scope filtering is independent of the service working directory and `..` spelling.
 - [x] Expand configured roots with resolved direct symlink targets under `$HOME/.config` so logical configuration trees remain monitored across mount boundaries.
 - [x] Include `$HOME/.ssh` in the deployed audit scope.
@@ -83,6 +85,7 @@ Local policy file:
 
 - [x] Parse `config/osso.toml`.
 - [x] Allow known owners configured in `config/osso.toml`.
+- [x] Keep broad ownership entries removed for `/etc`, `/var`, `/var/log`, `$HOME/.local/share`, and `$HOME/.local/state`; protect sensitive subdirectories by listing them explicitly.
 - [x] Prompt dev tools that read sensitive configured paths.
 - [x] Allow Claude-spawned shell helpers for configured Claude paths when the Claude ancestor rule matches.
 - [x] Allow Claude-spawned snapshot helpers covered by the local policy.
