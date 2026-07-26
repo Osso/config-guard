@@ -1353,6 +1353,12 @@ allowed_subjects = [
 ]
 
 [[owned_paths]]
+path = "/var/lib/secrets-broker"
+owner = "secrets-broker"
+allowed_subjects = ["secrets-broker", "secrets-broker-admin"]
+deny_non_owner = true
+
+[[owned_paths]]
 path = "/var/lib/NetworkManager"
 owner = "NetworkManager"
 allowed_subjects = [
