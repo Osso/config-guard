@@ -151,6 +151,51 @@ fn guard_blocks_access_when_prompt_denies() {
 
 #[test]
 #[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
+fn guard_denies_strict_non_owner_without_prompt_fallback() {
+    require_root();
+    let fixture = RootFixture::new("guard_denies_strict_non_owner_without_prompt_fallback");
+    fs::write(
+        fixture.config_path(),
+        format!(
+            "fail_open = true\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"not-cat\"\nallowed_subjects = []\ndeny_non_owner = true\n",
+            fixture.protected_dir().display()
+        ),
+    )
+    .expect("write strict policy");
+    let mut guard = ConfigGuardProcess::start([
+        "guard",
+        "--path",
+        fixture.watch_root().to_str().unwrap(),
+        "--config",
+        fixture.config_path().to_str().unwrap(),
+    ]);
+
+    guard.wait_for_line("watching ");
+    let output = run_with_timeout(
+        Command::new("cat").arg(fixture.probe_path()),
+        TIMEOUT,
+        "strictly denied cat probe under guard",
+    );
+
+    assert!(
+        !output.status.success(),
+        "strict deny should fail: {output:?}"
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "strict deny returned protected data"
+    );
+    let forbid = guard.wait_for_line("FORBID audit");
+    assert!(forbid.contains("exe=cat"), "{forbid}");
+    assert!(forbid.contains("decision=Deny"), "{forbid}");
+    assert!(
+        !fixture.prompt_log_path().exists(),
+        "strict deny invoked prompt"
+    );
+}
+
+#[test]
+#[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
 fn guard_reuses_prompt_answer_for_same_process_and_scope() {
     require_root();
     let fixture = RootFixture::new("guard_reuses_prompt_answer_for_same_process_and_scope");

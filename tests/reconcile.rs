@@ -220,6 +220,7 @@ fn policy_with_owned_path(path: PathBuf, owner: &str) -> PolicyConfig {
             path,
             owner: owner.to_string(),
             allowed_subjects: Vec::new(),
+            deny_non_owner: false,
         }],
         shared_paths: Vec::<SharedPath>::new(),
         sensitive_paths: Vec::<PathRule>::new(),

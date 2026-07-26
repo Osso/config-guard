@@ -14,6 +14,8 @@ The service's `--path` arguments define fanotify observation roots. They are int
 
 Ownership protection comes only from explicit `owned_paths` entries (and access sharing from explicit `shared_paths` entries). A generic descendant under a monitored root such as `/etc`, `/var/lib`, `/var/log`, `$HOME/.local/share`, or `$HOME/.local/state` is unowned when no explicit policy rule matches it, so ordinary access is allowed by the ownership policy. Other rules, such as sensitive-path or dev-tool rules, can still produce a prompt.
 
+An owned path may set `deny_non_owner = true`. Its configured owner and allowed subjects still receive access, but every other subject receives `Deny` before shared-path, sensitive-path, prompt, cache, or fail-open handling. Use this only as defense-in-depth for data whose Unix ownership already provides the primary fail-closed boundary; fanotify enforcement disappears if Config Guard stops.
+
 The deployed policy removed broad ownership entries for `/etc`, `/var`, `/var/log`, `$HOME/.local/share`, and `$HOME/.local/state`. Sensitive subdirectories remain protected by listing those directories explicitly in `owned_paths` or another applicable policy section. Add a specific entry when a new directory must receive ownership protection; adding a directory to a monitored root alone is not sufficient.
 
 Audit and guard use different fanotify strategies:

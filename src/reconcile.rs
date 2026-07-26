@@ -312,6 +312,7 @@ mod tests {
                 path: entry.clone(),
                 owner: "tool".to_string(),
                 allowed_subjects: Vec::new(),
+                deny_non_owner: false,
             }],
             shared_paths: vec![SharedPath {
                 path: PathBuf::from("/home/osso/.config/shared"),
