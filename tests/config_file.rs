@@ -52,12 +52,51 @@ fn osso_config_allows_git_to_read_tracked_credential_trees() {
 }
 
 #[test]
-fn osso_config_does_not_broadly_allow_git_for_sensitive_config() {
+fn osso_config_prompts_for_git_writes_to_tracked_credential_trees() {
+    let policy = Policy::new(parse_osso_config());
+
+    for path in [
+        "/home/osso/.config/gc/token.json",
+        "/home/osso/.config/gmail-cli/tokens.json",
+    ] {
+        let decision = policy.decide(
+            &subject("git"),
+            path,
+            config_guard::policy::AccessKind::Write,
+        );
+
+        assert!(
+            matches!(decision, Decision::Prompt { .. }),
+            "git write should prompt for {path}"
+        );
+    }
+}
+
+#[test]
+fn osso_config_prompts_for_git_helpers_on_tracked_credential_trees() {
+    let policy = Policy::new(parse_osso_config());
+
+    for helper in ["git-remote-http", "git-remote-https"] {
+        let decision = policy.decide(
+            &subject(helper),
+            "/home/osso/.config/gc/token.json",
+            config_guard::policy::AccessKind::Read,
+        );
+
+        assert!(
+            matches!(decision, Decision::Prompt { .. }),
+            "{helper} read should prompt"
+        );
+    }
+}
+
+#[test]
+fn osso_config_does_not_extend_git_access_to_adjacent_paths() {
     let policy = Policy::new(parse_osso_config());
 
     let decision = policy.decide(
         &subject("git"),
-        "/home/osso/.config/doctl/config.yaml",
+        "/home/osso/.config/gcloud/configurations/config_default",
         config_guard::policy::AccessKind::Read,
     );
 
