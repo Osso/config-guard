@@ -455,7 +455,7 @@ allowed_subjects = [
 [[owned_paths]]
 path = "/home/osso/.kube"
 owner = "kubectl"
-allowed_subjects = []
+allowed_subjects = ["flux"]
 
 [[shared_paths]]
 path = "/home/osso/.config/git"
@@ -851,12 +851,12 @@ allowed_subjects = []
 [[owned_paths]]
 path = "/home/osso/.config/syncthing"
 owner = "syncthing"
-allowed_subjects = []
+allowed_subjects = ["syncthing-cli"]
 
 [[owned_paths]]
 path = "/home/osso/.config/syncthing-cli"
 owner = "syncthing"
-allowed_subjects = []
+allowed_subjects = ["syncthing-cli"]
 
 [[owned_paths]]
 path = "/home/osso/.config/vivaldi"

@@ -28,7 +28,8 @@ Audit and guard runtime:
 
 - [x] In audit mode, log policy violations as `FORBID audit` lines for cross-owner access without denying the operation.
 - [x] In audit-prompt mode, invoke the configured session prompt for policy Prompt decisions, log the user's decision as `FORBID audit-prompt`, and always allow the underlying access.
-- [x] In guard mode, invoke the configured prompt command for cross-owner access.
+- [x] In guard mode, log policy violations as `FORBID guard` lines while invoking the configured prompt command for cross-owner access.
+- [x] Keep `FORBID audit` specific to audit mode; guard violations use `FORBID guard`.
 - [x] In guard mode, block an open when the prompt explicitly denies it.
 - [x] Reuse an approved prompt answer for the same executable, access kind, reason, and policy scope.
 - [x] Do not cache explicit prompt denials as durable executable approvals.
@@ -37,7 +38,7 @@ Audit and guard runtime:
 - [x] Canonicalize configured roots and exclusions before monitoring so scope filtering is independent of the service working directory and `..` spelling.
 - [x] Expand configured roots with resolved direct symlink targets under `$HOME/.config` so logical configuration trees remain monitored across mount boundaries.
 - [x] Include `$HOME/.ssh` and `$HOME/.kube` in both deployed audit and guard monitoring scopes.
-- [x] Keep `$HOME/.kube` ownership explicit in policy with `kubectl` as owner; monitoring scope does not grant ownership.
+- [x] Keep `$HOME/.kube` owned by `kubectl` with `flux` as an explicit allowed subject; monitoring scope does not grant ownership.
 - [x] In audit mode, use mount notifications plus root/exclusion filtering so existing and future descendants on each marked mount are covered without recursive-mark races.
 - [x] Document that submounts created after startup require a Config Guard restart because `FAN_MARK_MOUNT` does not follow later mounts.
 - [x] Reject unsupported fanotify metadata versions instead of parsing an unknown ABI.
@@ -86,6 +87,7 @@ Local policy file:
 
 - [x] Parse `config/osso.toml`.
 - [x] Allow known owners configured in `config/osso.toml`.
+- [x] Allow `syncthing-cli` as a subject for both `$HOME/.config/syncthing-cli` and `$HOME/.config/syncthing`.
 - [x] Keep broad ownership entries removed for `/etc`, `/var`, `/var/log`, `$HOME/.local/share`, and `$HOME/.local/state`; protect sensitive subdirectories by listing them explicitly.
 - [x] Prompt dev tools that read sensitive configured paths.
 - [x] Allow Claude-spawned shell helpers for configured Claude paths when the Claude ancestor rule matches.

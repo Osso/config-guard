@@ -449,7 +449,7 @@ fn decide_guard_event(
 ) -> Result<Decision> {
     let subject = process.subject();
     let policy_decision = policy.decide(&subject, target_path, access)?;
-    log_audit_decision(
+    log_guard_decision(
         pid,
         &subject.executable,
         target_path,
@@ -476,21 +476,72 @@ fn log_audit_decision(
     access: AccessKind,
     decision: Decision,
 ) {
+    log_policy_decision("audit", pid, executable, target_path, access, decision);
+}
+
+#[cfg(not(coverage))]
+fn log_guard_decision(
+    pid: i32,
+    executable: &Path,
+    target_path: &Path,
+    access: AccessKind,
+    decision: Decision,
+) {
+    if let Some(line) = format_guard_decision(pid, executable, target_path, access, decision) {
+        eprintln!("{line}");
+    }
+}
+
+#[cfg(not(coverage))]
+fn log_policy_decision(
+    mode: &str,
+    pid: i32,
+    executable: &Path,
+    target_path: &Path,
+    access: AccessKind,
+    decision: Decision,
+) {
+    if let Some(line) = format_policy_decision(mode, pid, executable, target_path, access, decision)
+    {
+        eprintln!("{line}");
+    }
+}
+
+#[cfg(not(coverage))]
+fn format_guard_decision(
+    pid: i32,
+    executable: &Path,
+    target_path: &Path,
+    access: AccessKind,
+    decision: Decision,
+) -> Option<String> {
+    format_policy_decision("guard", pid, executable, target_path, access, decision)
+}
+
+#[cfg(not(coverage))]
+fn format_policy_decision(
+    mode: &str,
+    pid: i32,
+    executable: &Path,
+    target_path: &Path,
+    access: AccessKind,
+    decision: Decision,
+) -> Option<String> {
     match decision {
-        Decision::Allow => {}
-        Decision::Deny => eprintln!(
-            "FORBID audit pid={} exe={} access={:?} path={} decision=Deny",
+        Decision::Allow => None,
+        Decision::Deny => Some(format!(
+            "FORBID {mode} pid={} exe={} access={:?} path={} decision=Deny",
             pid,
             executable_label(executable),
             access,
             target_path.display()
-        ),
+        )),
         Decision::Prompt {
             reason,
             default,
             scope,
-        } => eprintln!(
-            "FORBID audit pid={} exe={} access={:?} path={} decision=Prompt reason={:?} default={:?} scope={}",
+        } => Some(format!(
+            "FORBID {mode} pid={} exe={} access={:?} path={} decision=Prompt reason={:?} default={:?} scope={}",
             pid,
             executable_label(executable),
             access,
@@ -498,7 +549,7 @@ fn log_audit_decision(
             reason,
             default,
             scope.display()
-        ),
+        )),
     }
 }
 

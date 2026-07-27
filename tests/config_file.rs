@@ -21,6 +21,19 @@ fn osso_config_allows_known_owner() {
 }
 
 #[test]
+fn osso_config_allows_flux_to_read_kube_config() {
+    let policy = Policy::new(parse_osso_config());
+
+    let decision = policy.decide(
+        &subject("flux"),
+        "/home/osso/.kube/config",
+        config_guard::policy::AccessKind::Read,
+    );
+
+    assert_eq!(decision, Decision::Allow);
+}
+
+#[test]
 fn osso_config_allows_pi_state_access() {
     let policy = Policy::new(parse_osso_config());
 
@@ -245,6 +258,28 @@ fn osso_config_allows_k9s_state_access() {
         let decision = policy.decide(&subject("k9s"), path, access);
 
         assert_eq!(decision, Decision::Allow);
+    }
+}
+
+#[test]
+fn osso_config_allows_syncthing_cli_config_reads() {
+    let policy = Policy::new(parse_osso_config());
+
+    for path in [
+        "/home/osso/.config/syncthing-cli/config.json",
+        "/home/osso/.config/syncthing/config.xml",
+    ] {
+        let decision = policy.decide(
+            &subject("syncthing-cli"),
+            path,
+            config_guard::policy::AccessKind::Read,
+        );
+
+        assert_eq!(
+            decision,
+            Decision::Allow,
+            "syncthing-cli should read {path}"
+        );
     }
 }
 

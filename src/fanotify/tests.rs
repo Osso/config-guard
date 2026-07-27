@@ -6,8 +6,8 @@ use super::audit::{access_kinds as audit_access_kinds, decide_event as decide_au
 use super::{Mode, run};
 use super::{
     PromptDecisionCache, access_kind, audit_watch_mask, child_directories, ensure_event_descriptor,
-    ensure_path_exists, guard_watch_mask, has_graphical_session, is_permission_event,
-    is_watched_path, prompt_for_policy_decision, response_code,
+    ensure_path_exists, format_guard_decision, guard_watch_mask, has_graphical_session,
+    is_permission_event, is_watched_path, prompt_for_policy_decision, response_code,
 };
 use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject};
 #[cfg(not(coverage))]
@@ -271,6 +271,26 @@ fn resolve_does_not_cache_denials_for_binary() {
     assert_eq!(first, Decision::Deny);
     assert_eq!(second, Decision::Deny);
     assert_eq!(prompt.calls.get(), 2);
+}
+
+#[cfg(not(coverage))]
+#[test]
+fn guard_policy_log_line_uses_guard_mode() {
+    let line = format_guard_decision(
+        42,
+        Path::new("/usr/bin/cat"),
+        Path::new("/home/osso/.kube/config"),
+        AccessKind::Read,
+        Decision::Prompt {
+            reason: DecisionReason::CrossOwnerRead,
+            default: Box::new(Decision::Allow),
+            scope: PathBuf::from("/home/osso/.kube"),
+        },
+    )
+    .expect("prompt decisions should be logged");
+
+    assert!(line.starts_with("FORBID guard "), "{line}");
+    assert!(!line.starts_with("FORBID audit "), "{line}");
 }
 
 #[test]

@@ -6,13 +6,13 @@ Config Guard watches sensitive configuration trees with Linux fanotify and evalu
 
 - `audit` logs policy violations as `FORBID audit` and always lets the access continue.
 - `audit-prompt` uses the same prompt backend as guard, logs policy violations as `FORBID audit` and the resulting user/default decision as `FORBID audit-prompt`, and always lets the access continue. Use it to validate the dialog before enforcement.
-- `guard` resolves policy violations through authd or a configured prompt command, then permits or denies the event.
+- `guard` logs policy violations as `FORBID guard`, resolves them through authd or a configured prompt command, then permits or denies the event.
 
 ## Monitoring scope versus ownership scope
 
 The service's `--path` arguments define fanotify observation roots. They are intentionally broad so audit and guard can observe accesses across the configured filesystem areas. They do not create policy ownership for every descendant.
 
-Ownership protection comes only from explicit `owned_paths` entries (and access sharing from explicit `shared_paths` entries). A generic descendant under a monitored root such as `/etc`, `/var/lib`, `/var/log`, `$HOME/.local/share`, or `$HOME/.local/state` is unowned when no explicit policy rule matches it, so ordinary access is allowed by the ownership policy. Other rules, such as sensitive-path or dev-tool rules, can still produce a prompt.
+Ownership protection comes only from explicit `owned_paths` entries (and access sharing from explicit `shared_paths` entries). A generic descendant under a monitored root such as `/etc`, `/var/lib`, `/var/log`, `$HOME/.local/share`, or `$HOME/.local/state` is unowned when no explicit policy rule matches it, so ordinary access is allowed by the ownership policy. Other rules, such as sensitive-path or dev-tool rules, can still produce a prompt. The policy allows `syncthing-cli` as a subject for both `$HOME/.config/syncthing-cli` and `$HOME/.config/syncthing`.
 
 The deployed policy removed broad ownership entries for `/etc`, `/var`, `/var/log`, `$HOME/.local/share`, and `$HOME/.local/state`. Sensitive subdirectories remain protected by listing those directories explicitly in `owned_paths` or another applicable policy section. Add a specific entry when a new directory must receive ownership protection; adding a directory to a monitored root alone is not sufficient.
 
@@ -38,7 +38,7 @@ Run `./deploy.sh` from the repository root for audit mode, or `./deploy.sh --mod
 1. Validates the selected mode before building or changing host state.
 2. Builds and installs the release binary to `~/.cargo/bin/config-guard`.
 3. Requires `HOME=/home/osso` and installs `config/osso.toml` to `/home/osso/.config/config-guard/config.toml` with mode `0600`, matching the systemd unit exactly.
-4. Uses one pooled `authsudo` invocation to install the audit or guard unit under `/etc/systemd/system/config-guard.service`, reload systemd, enable it at boot, and restart it. Both scopes explicitly include `~/.ssh` and `~/.kube`; monitoring scope remains distinct from policy ownership, with the existing `~/.kube` ownership entry assigned to `kubectl`.
+4. Uses one pooled `authsudo` invocation to install the audit or guard unit under `/etc/systemd/system/config-guard.service`, reload systemd, enable it at boot, and restart it. Both scopes explicitly include `~/.ssh` and `~/.kube`; monitoring scope remains distinct from policy ownership, with `~/.kube` owned by `kubectl` and `flux` listed as an explicit allowed subject.
 5. Keeps build, user configuration install, and post-restart health checks unprivileged.
 6. Relies on `Type=notify`: `systemctl restart` does not complete until the daemon sends `READY=1`, which happens only after all monitoring marks are installed.
 7. Waits six additional seconds, then verifies boot enablement, active state, `Type=notify`, the selected-mode `ExecStart`, a nonzero main PID, and zero restarts.
@@ -58,7 +58,7 @@ journalctl -u config-guard.service -b
 
 Expected state: `enabled`, `active`, `Type=notify`, nonzero `MainPID`, `NRestarts=0`, and an `ExecStart` matching the selected mode.
 
-During audit burn-in, review `FORBID audit` entries. Add durable policy allows only for stable owners or repeatable workflows; do not encode one-off copy commands.
+During audit burn-in, review `FORBID audit` entries. Guard violations are logged as `FORBID guard`; audit labels do not indicate the active runtime mode. Add durable policy allows only for stable owners or repeatable workflows; do not encode one-off copy commands.
 
 ## Guard transition and rollback
 
