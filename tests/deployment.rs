@@ -15,6 +15,7 @@ fn systemd_unit_runs_audit_mode_at_boot() {
     assert!(unit.contains("NotifyAccess=main"));
     assert!(unit.contains("ExecStart=/home/osso/.cargo/bin/config-guard audit "));
     assert!(unit.contains("--path /home/osso/.ssh"));
+    assert!(unit.contains("--path /home/osso/.kube"));
     assert!(unit.contains("WantedBy=multi-user.target"));
 }
 
@@ -27,6 +28,7 @@ fn systemd_guard_unit_runs_guard_mode() {
     assert!(unit.contains("NotifyAccess=main"));
     assert!(unit.contains("ExecStart=/home/osso/.cargo/bin/config-guard guard "));
     assert!(unit.contains("--path /home/osso/.ssh"));
+    assert!(unit.contains("--path /home/osso/.kube"));
     assert!(unit.contains("WantedBy=multi-user.target"));
 }
 

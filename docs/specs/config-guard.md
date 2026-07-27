@@ -36,7 +36,8 @@ Audit and guard runtime:
 - [x] Keep fanotify monitoring scope independent from policy ownership scope: broad monitored roots provide observation coverage but do not implicitly protect every descendant.
 - [x] Canonicalize configured roots and exclusions before monitoring so scope filtering is independent of the service working directory and `..` spelling.
 - [x] Expand configured roots with resolved direct symlink targets under `$HOME/.config` so logical configuration trees remain monitored across mount boundaries.
-- [x] Include `$HOME/.ssh` in the deployed audit scope.
+- [x] Include `$HOME/.ssh` and `$HOME/.kube` in both deployed audit and guard monitoring scopes.
+- [x] Keep `$HOME/.kube` ownership explicit in policy with `kubectl` as owner; monitoring scope does not grant ownership.
 - [x] In audit mode, use mount notifications plus root/exclusion filtering so existing and future descendants on each marked mount are covered without recursive-mark races.
 - [x] Document that submounts created after startup require a Config Guard restart because `FAN_MARK_MOUNT` does not follow later mounts.
 - [x] Reject unsupported fanotify metadata versions instead of parsing an unknown ABI.

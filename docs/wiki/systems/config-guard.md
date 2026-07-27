@@ -38,7 +38,7 @@ Run `./deploy.sh` from the repository root for audit mode, or `./deploy.sh --mod
 1. Validates the selected mode before building or changing host state.
 2. Builds and installs the release binary to `~/.cargo/bin/config-guard`.
 3. Requires `HOME=/home/osso` and installs `config/osso.toml` to `/home/osso/.config/config-guard/config.toml` with mode `0600`, matching the systemd unit exactly.
-4. Uses one pooled `authsudo` invocation to install the audit or guard unit under `/etc/systemd/system/config-guard.service`, reload systemd, enable it at boot, and restart it. Both scopes explicitly include `~/.ssh`; these monitoring roots remain broader than the explicit ownership entries in the policy file.
+4. Uses one pooled `authsudo` invocation to install the audit or guard unit under `/etc/systemd/system/config-guard.service`, reload systemd, enable it at boot, and restart it. Both scopes explicitly include `~/.ssh` and `~/.kube`; monitoring scope remains distinct from policy ownership, with the existing `~/.kube` ownership entry assigned to `kubectl`.
 5. Keeps build, user configuration install, and post-restart health checks unprivileged.
 6. Relies on `Type=notify`: `systemctl restart` does not complete until the daemon sends `READY=1`, which happens only after all monitoring marks are installed.
 7. Waits six additional seconds, then verifies boot enablement, active state, `Type=notify`, the selected-mode `ExecStart`, a nonzero main PID, and zero restarts.

@@ -5,7 +5,7 @@ After=local-fs.target
 [Service]
 Type=notify
 NotifyAccess=main
-ExecStart=/home/osso/.cargo/bin/config-guard guard --path /home/osso/.config --path /home/osso/.local/share --path /home/osso/.local/state --path /home/osso/.ssh --path /etc --path /var/lib --path /var/log --path /var/cache --exclude-path /home/osso/.config/archive --exclude-path /var/lib/docker --config /home/osso/.config/config-guard/config.toml
+ExecStart=/home/osso/.cargo/bin/config-guard guard --path /home/osso/.config --path /home/osso/.local/share --path /home/osso/.local/state --path /home/osso/.ssh --path /home/osso/.kube --path /etc --path /var/lib --path /var/log --path /var/cache --exclude-path /home/osso/.config/archive --exclude-path /var/lib/docker --config /home/osso/.config/config-guard/config.toml
 Restart=always
 RestartSec=5
 StandardOutput=journal
