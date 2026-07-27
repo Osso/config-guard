@@ -16,6 +16,8 @@ Ownership protection comes only from explicit `owned_paths` entries (and access 
 
 A temporary tracked-credential exception allows subject `git` to read only `$HOME/.config/gc` and `$HOME/.config/gmail-cli`, because those credential files are intentionally tracked in the Provisioning repository. This exception does not allow Git helpers or broader sensitive-configuration access. Retire it when tracked credential storage is replaced by a workflow that does not require Git to open these files.
 
+`/etc/NetworkManager/dispatcher.d` and its descendants are an explicit all-subject, all-access shared subtree, so they are unprotected by policy. The parent `/etc/NetworkManager` and sibling subtrees remain governed by their existing ownership rules.
+
 The deployed policy removed broad ownership entries for `/etc`, `/var`, `/var/log`, `$HOME/.local/share`, and `$HOME/.local/state`. Sensitive subdirectories remain protected by listing those directories explicitly in `owned_paths` or another applicable policy section. Add a specific entry when a new directory must receive ownership protection; adding a directory to a monitored root alone is not sufficient.
 
 Audit and guard use different fanotify strategies:

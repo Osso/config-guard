@@ -104,6 +104,51 @@ fn osso_config_does_not_extend_git_access_to_adjacent_paths() {
 }
 
 #[test]
+fn osso_config_allows_all_access_to_networkmanager_dispatcher_scripts() {
+    let policy = Policy::new(parse_osso_config());
+
+    for path in [
+        "/etc/NetworkManager/dispatcher.d",
+        "/etc/NetworkManager/dispatcher.d/90-disable-wifi-powersave",
+    ] {
+        for access in [
+            config_guard::policy::AccessKind::Read,
+            config_guard::policy::AccessKind::Write,
+            config_guard::policy::AccessKind::DestructiveWrite,
+        ] {
+            let decision = policy.decide(&subject("bash"), path, access);
+
+            assert_eq!(
+                decision,
+                Decision::Allow,
+                "bash {access:?} should access {path}"
+            );
+        }
+    }
+}
+
+#[test]
+fn osso_config_keeps_other_networkmanager_paths_owned() {
+    let policy = Policy::new(parse_osso_config());
+
+    for path in [
+        "/etc/NetworkManager/NetworkManager.conf",
+        "/etc/NetworkManager/conf.d/wifi.conf",
+    ] {
+        let decision = policy.decide(
+            &subject("bash"),
+            path,
+            config_guard::policy::AccessKind::Read,
+        );
+
+        assert!(
+            matches!(decision, Decision::Prompt { .. }),
+            "bash read should prompt for {path}"
+        );
+    }
+}
+
+#[test]
 fn osso_config_allows_pi_state_access() {
     let policy = Policy::new(parse_osso_config());
 

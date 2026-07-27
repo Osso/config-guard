@@ -1362,6 +1362,10 @@ allowed_subjects = [
   "nmcli",
 ]
 
+[[shared_paths]]
+path = "/etc/NetworkManager/dispatcher.d"
+allowed_subjects = ["*"]
+
 [[owned_paths]]
 path = "/var/lib/NetworkManager"
 owner = "NetworkManager"
