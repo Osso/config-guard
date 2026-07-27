@@ -34,6 +34,37 @@ fn osso_config_allows_flux_to_read_kube_config() {
 }
 
 #[test]
+fn osso_config_allows_git_to_read_tracked_credential_trees() {
+    let policy = Policy::new(parse_osso_config());
+
+    for path in [
+        "/home/osso/.config/gc/token.json",
+        "/home/osso/.config/gmail-cli/tokens.json",
+    ] {
+        let decision = policy.decide(
+            &subject("git"),
+            path,
+            config_guard::policy::AccessKind::Read,
+        );
+
+        assert_eq!(decision, Decision::Allow, "git should read {path}");
+    }
+}
+
+#[test]
+fn osso_config_does_not_broadly_allow_git_for_sensitive_config() {
+    let policy = Policy::new(parse_osso_config());
+
+    let decision = policy.decide(
+        &subject("git"),
+        "/home/osso/.config/doctl/config.yaml",
+        config_guard::policy::AccessKind::Read,
+    );
+
+    assert!(matches!(decision, Decision::Prompt { .. }));
+}
+
+#[test]
 fn osso_config_allows_pi_state_access() {
     let policy = Policy::new(parse_osso_config());
 

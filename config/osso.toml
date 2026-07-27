@@ -106,7 +106,7 @@ allowed_subjects = []
 [[owned_paths]]
 path = "/home/osso/.config/gc"
 owner = "gc"
-allowed_subjects = []
+allowed_subjects = ["git"]
 
 [[owned_paths]]
 path = "/home/osso/.config/firefox"
@@ -199,7 +199,7 @@ allowed_subjects = []
 [[owned_paths]]
 path = "/home/osso/.config/gmail-cli"
 owner = "gmail"
-allowed_subjects = []
+allowed_subjects = ["git"]
 
 [[owned_paths]]
 path = "/home/osso/.config/google-admin"
