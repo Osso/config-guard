@@ -60,7 +60,7 @@ struct PromptSpec {
 
 enum GuardAction {
     Respond(Decision),
-    Prompt(PromptSpec),
+    Prompt(Box<PromptSpec>),
 }
 
 struct GuardEvaluation {
@@ -432,7 +432,7 @@ fn handle_event(
             respond_and_close_event(fanotify_fd, metadata.fd, metadata.mask, decision)
         }
         Ok(GuardAction::Prompt(spec)) => {
-            coordinator.queue_prompt(fanotify_fd, metadata.fd, metadata.mask, spec)
+            coordinator.queue_prompt(fanotify_fd, metadata.fd, metadata.mask, *spec)
         }
         Err(error) => {
             let result: Result<()> = Err(error);
@@ -521,14 +521,14 @@ fn resolve_guard_action(
         unreachable!("non-prompt guard decisions resolve immediately")
     };
 
-    GuardAction::Prompt(PromptSpec {
+    GuardAction::Prompt(Box::new(PromptSpec {
         key: prompt_key,
         subject: evaluation.subject,
         target_path,
         reason,
         default_decision: *default,
         env,
-    })
+    }))
 }
 
 fn log_guard_decision(
