@@ -92,7 +92,7 @@ fn guard_invokes_prompt_command_for_cross_owner_access() {
         output.status.success(),
         "cat should complete via fail-open prompt default: {output:?}"
     );
-    let forbid = guard.wait_for_line("FORBID audit");
+    let forbid = guard.wait_for_line("FORBID guard");
     assert!(forbid.contains("exe=cat"), "{forbid}");
     assert!(forbid.contains("reason=CrossOwnerRead"), "{forbid}");
 
@@ -144,7 +144,7 @@ fn guard_blocks_access_when_prompt_denies() {
         output.stdout.is_empty(),
         "denied cat returned protected data"
     );
-    let forbid = guard.wait_for_line("FORBID audit");
+    let forbid = guard.wait_for_line("FORBID guard");
     assert!(forbid.contains("exe=cat"), "{forbid}");
     assert!(forbid.contains("reason=CrossOwnerRead"), "{forbid}");
 }
@@ -185,7 +185,7 @@ fn guard_denies_strict_non_owner_without_prompt_fallback() {
         output.stdout.is_empty(),
         "strict deny returned protected data"
     );
-    let forbid = guard.wait_for_line("FORBID audit");
+    let forbid = guard.wait_for_line("FORBID guard");
     assert!(forbid.contains("exe=cat"), "{forbid}");
     assert!(forbid.contains("decision=Deny"), "{forbid}");
     assert!(
@@ -224,7 +224,7 @@ fn guard_reuses_prompt_answer_for_same_process_and_scope() {
         output.status.success(),
         "cat should complete via cached prompt answer: {output:?}"
     );
-    guard.wait_for_line("FORBID audit");
+    guard.wait_for_line("FORBID guard");
 
     let prompt_log = fs::read_to_string(fixture.prompt_log_path()).expect("read prompt log");
     assert_eq!(
