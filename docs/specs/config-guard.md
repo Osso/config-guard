@@ -17,6 +17,8 @@ Policy decisions:
 - [x] Let shared paths allow all subjects with `*`.
 - [x] Enforce shared-path access kinds, including read-only shared paths.
 - [x] Let owned paths allow all subjects with `*`.
+- [x] Let an owned path opt into unconditional non-owner denial before shared-path and prompt rules.
+- [x] Enforce unconditional non-owner denial in guard mode without invoking prompt or fail-open fallback.
 - [x] Support file-prefix matching for shared paths when `path_prefix = true`.
 - [x] Prompt on cross-owner reads with the configured fail-open default.
 - [x] Prompt on cross-owner writes with a write-specific reason.
@@ -136,8 +138,8 @@ CLI and deployment:
 
 ## Tests asserting this spec
 
-- `tests/policy.rs` - policy decision contract.
-- `tests/root_integration.rs` - fanotify audit and guard behavior requiring root privileges.
+- `tests/policy.rs` - policy decisions, including strict non-owner denial precedence and TOML parsing.
+- `tests/root_integration.rs` - privileged fanotify enforcement, including strict non-owner denial without prompt fallback.
 - `tests/process_identity.rs` - process identity parsing contract.
 - `tests/learning.rs` - audit learning root selection and alias mapping.
 - `tests/reconcile.rs` - reconcile planning and apply behavior.

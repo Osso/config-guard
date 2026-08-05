@@ -55,6 +55,8 @@ pub struct OwnedPath {
     pub owner: String,
     #[serde(default)]
     pub allowed_subjects: Vec<String>,
+    #[serde(default)]
+    pub deny_non_owner: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -91,12 +93,15 @@ impl Policy {
         let target_path = target_path.as_ref();
         let subject_name = subject_name(subject);
 
-        if self.shared_path_allows(subject, &subject_name, target_path, access) {
-            return Decision::Allow;
-        }
-
         let owner = self.owner_for(target_path);
         if owner.is_some_and(|owner| owner.allows(subject, &subject_name)) {
+            return Decision::Allow;
+        }
+        if owner.is_some_and(|owner| owner.deny_non_owner) {
+            return Decision::Deny;
+        }
+
+        if self.shared_path_allows(subject, &subject_name, target_path, access) {
             return Decision::Allow;
         }
 
@@ -336,6 +341,7 @@ fn default_owned_paths() -> Vec<OwnedPath> {
         path: home_relative_path(suffix),
         owner: owner.to_string(),
         allowed_subjects: Vec::new(),
+        deny_non_owner: false,
     })
     .collect()
 }

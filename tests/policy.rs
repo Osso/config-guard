@@ -48,6 +48,7 @@ fn claude_versioned_binary_requires_explicit_prefix_allow() {
         path: PathBuf::from("/home/osso/.config/claude"),
         owner: "claude".to_string(),
         allowed_subjects: vec!["exe-prefix:/home/osso/.local/share/claude/versions/".to_string()],
+        deny_non_owner: false,
     });
     let policy = Policy::new(config);
 
@@ -73,6 +74,7 @@ fn explicit_owner_allow_takes_precedence_over_sensitive_dev_tool_prompt() {
         path: PathBuf::from("/home/osso/.config/claude"),
         owner: "claude".to_string(),
         allowed_subjects: vec!["exe-prefix:/home/osso/.local/share/claude/versions/".to_string()],
+        deny_non_owner: false,
     });
     let policy = Policy::new(config);
 
@@ -95,6 +97,7 @@ fn ancestor_executable_prefix_can_allow_claude_spawned_bash_for_claude_config() 
             "exe-with-ancestor-prefix:/usr/bin/bash:/home/osso/.local/share/claude/versions/"
                 .to_string(),
         ],
+        deny_non_owner: false,
     });
     let policy = Policy::new(config);
 
@@ -120,6 +123,7 @@ fn ancestor_executable_prefix_does_not_allow_bash_without_claude_parent() {
             "exe-with-ancestor-prefix:/usr/bin/bash:/home/osso/.local/share/claude/versions/"
                 .to_string(),
         ],
+        deny_non_owner: false,
     });
     let policy = Policy::new(config);
 
@@ -146,6 +150,7 @@ fn ancestor_rule_can_allow_helper_by_parent_name() {
         path: PathBuf::from("/home/osso/.config/claude"),
         owner: "claude".to_string(),
         allowed_subjects: vec!["with-ancestor:jq|codex".to_string()],
+        deny_non_owner: false,
     });
     let policy = Policy::new(config);
 
@@ -165,6 +170,7 @@ fn ancestor_rule_rejects_helper_without_matching_parent() {
         path: PathBuf::from("/home/osso/.config/claude"),
         owner: "claude".to_string(),
         allowed_subjects: vec!["with-ancestor:jq|codex".to_string()],
+        deny_non_owner: false,
     });
     let policy = Policy::new(config);
 
@@ -191,6 +197,7 @@ fn most_specific_owned_path_rule_wins() {
         path: PathBuf::from("/home/osso/.config/claude"),
         owner: "claude".to_string(),
         allowed_subjects: Vec::new(),
+        deny_non_owner: false,
     });
     config.owned_paths.push(OwnedPath {
         path: PathBuf::from("/home/osso/.config/claude/shell-snapshots"),
@@ -199,6 +206,7 @@ fn most_specific_owned_path_rule_wins() {
             "exe-with-ancestor-prefix:/usr/bin/bash:/home/osso/.local/share/claude/versions/"
                 .to_string(),
         ],
+        deny_non_owner: false,
     });
     let policy = Policy::new(config);
 
@@ -221,6 +229,7 @@ fn claude_versioned_binary_does_not_implicitly_match_claude_owner() {
         path: PathBuf::from("/home/osso/.config/claude"),
         owner: "claude".to_string(),
         allowed_subjects: Vec::new(),
+        deny_non_owner: false,
     });
     let policy = Policy::new(config);
 
@@ -320,6 +329,7 @@ fn shared_paths_can_be_read_only() {
         path: PathBuf::from("/etc"),
         owner: "root".to_string(),
         allowed_subjects: Vec::new(),
+        deny_non_owner: false,
     });
     let policy = Policy::new(config);
 
@@ -352,6 +362,7 @@ fn owned_paths_can_allow_all_subjects() {
         path: PathBuf::from("/home/osso/.config/example"),
         owner: "example".to_string(),
         allowed_subjects: vec!["*".to_string()],
+        deny_non_owner: false,
     });
     let policy = Policy::new(config);
 
@@ -377,6 +388,7 @@ fn shared_paths_can_match_file_prefixes() {
         path: PathBuf::from("/etc"),
         owner: "root".to_string(),
         allowed_subjects: Vec::new(),
+        deny_non_owner: false,
     });
     let policy = Policy::new(config);
 
@@ -468,4 +480,127 @@ fn explicit_prompt_deny_denies_only_current_event() {
 
     assert_eq!(denied, Decision::Deny);
     assert!(matches!(later_decision, Decision::Prompt { .. }));
+}
+
+#[test]
+fn deny_non_owner_allows_the_configured_owner() {
+    let mut config = PolicyConfig::default();
+    config.owned_paths.push(OwnedPath {
+        path: PathBuf::from("/var/lib/secrets-broker"),
+        owner: "secrets-broker".to_string(),
+        allowed_subjects: Vec::new(),
+        deny_non_owner: true,
+    });
+    let policy = Policy::new(config);
+
+    let decision = policy.decide(
+        &subject("secrets-broker"),
+        "/var/lib/secrets-broker/citi.json",
+        AccessKind::Read,
+    );
+
+    assert_eq!(decision, Decision::Allow);
+}
+
+#[test]
+fn deny_non_owner_returns_deny_instead_of_prompt() {
+    let mut config = PolicyConfig::default();
+    config.owned_paths.push(OwnedPath {
+        path: PathBuf::from("/var/lib/secrets-broker"),
+        owner: "secrets-broker".to_string(),
+        allowed_subjects: Vec::new(),
+        deny_non_owner: true,
+    });
+    let policy = Policy::new(config);
+
+    let decision = policy.decide(
+        &subject("codex"),
+        "/var/lib/secrets-broker/citi.json",
+        AccessKind::Read,
+    );
+
+    assert_eq!(decision, Decision::Deny);
+}
+
+#[test]
+fn deny_non_owner_precedes_shared_path_access() {
+    let mut config = PolicyConfig::default();
+    config.owned_paths.push(OwnedPath {
+        path: PathBuf::from("/var/lib/secrets-broker"),
+        owner: "secrets-broker".to_string(),
+        allowed_subjects: Vec::new(),
+        deny_non_owner: true,
+    });
+    config.shared_paths.push(SharedPath {
+        path: PathBuf::from("/var/lib/secrets-broker"),
+        path_prefix: false,
+        allowed_subjects: vec!["*".to_string()],
+        access: vec![AccessKind::Read],
+    });
+    let policy = Policy::new(config);
+
+    let decision = policy.decide(
+        &subject("codex"),
+        "/var/lib/secrets-broker/citi.json",
+        AccessKind::Read,
+    );
+
+    assert_eq!(decision, Decision::Deny);
+}
+
+#[test]
+fn deny_non_owner_precedes_sensitive_dev_tool_prompt() {
+    let mut config = PolicyConfig {
+        dev_tools: vec!["codex".to_string()],
+        ..PolicyConfig::default()
+    };
+    config.sensitive_paths.push(config_guard::policy::PathRule {
+        path: PathBuf::from("/var/lib/secrets-broker"),
+    });
+    config.owned_paths.push(OwnedPath {
+        path: PathBuf::from("/var/lib/secrets-broker"),
+        owner: "secrets-broker".to_string(),
+        allowed_subjects: Vec::new(),
+        deny_non_owner: true,
+    });
+    let policy = Policy::new(config);
+
+    let decision = policy.decide(
+        &subject("codex"),
+        "/var/lib/secrets-broker/citi.json",
+        AccessKind::Read,
+    );
+
+    assert_eq!(decision, Decision::Deny);
+}
+
+#[test]
+fn deny_non_owner_defaults_to_false_when_omitted_from_toml() {
+    let config: PolicyConfig = toml::from_str(
+        r#"
+        [[owned_paths]]
+        path = "/home/osso/.config/example"
+        owner = "example"
+        allowed_subjects = []
+        "#,
+    )
+    .unwrap();
+
+    assert!(!config.owned_paths[0].deny_non_owner);
+}
+
+#[test]
+fn deny_non_owner_is_deserialized_from_toml() {
+    let config: PolicyConfig = toml::from_str(
+        r#"
+        [[owned_paths]]
+        path = "/var/lib/secrets-broker"
+        owner = "secrets-broker"
+        allowed_subjects = []
+        deny_non_owner = true
+        "#,
+    )
+    .unwrap();
+
+    assert!(config.owned_paths[0].deny_non_owner);
 }
