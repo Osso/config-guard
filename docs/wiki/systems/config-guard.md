@@ -20,6 +20,8 @@ A temporary tracked-credential exception allows subject `git` to read only `$HOM
 
 An owned path may set `deny_non_owner = true`. Its configured owner and allowed subjects still receive access, but every other subject receives `Deny` before shared-path, sensitive-path, prompt, cache, or fail-open handling. Use this only as defense-in-depth for data whose Unix ownership already provides the primary fail-closed boundary; fanotify enforcement disappears if Config Guard stops.
 
+The deployed policy applies this strict rule to `/var/lib/secrets-broker`: owner `secrets-broker`, explicit additional subject `secrets-broker-admin`, and `deny_non_owner = true`. Other subjects cannot reach the credential store through prompt or fail-open handling; Unix ownership remains the primary boundary if Config Guard is stopped.
+
 The deployed policy removed broad ownership entries for `/etc`, `/var`, `/var/log`, `$HOME/.local/share`, and `$HOME/.local/state`. Sensitive subdirectories remain protected by listing those directories explicitly in `owned_paths` or another applicable policy section. Add a specific entry when a new directory must receive ownership protection; adding a directory to a monitored root alone is not sufficient.
 
 Audit and guard use different fanotify strategies:
