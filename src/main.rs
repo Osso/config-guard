@@ -443,7 +443,7 @@ impl AccessPolicy for StaticPolicy {
 fn build_prompt(
     prompt_command: Option<PathBuf>,
     timeout: Duration,
-) -> Box<dyn config_guard::prompt::Prompt> {
+) -> Box<dyn config_guard::prompt::Prompt + Sync> {
     match prompt_command {
         Some(command) => Box::new(config_guard::prompt::CommandPrompt::new(command, timeout)),
         None => Box::new(config_guard::prompt::AuthdPrompt::new(timeout)),

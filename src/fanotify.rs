@@ -6,6 +6,8 @@ mod audit_identity;
 mod audit_process;
 #[cfg(not(coverage))]
 mod event;
+#[cfg(not(coverage))]
+mod guard;
 #[cfg(any(test, not(coverage)))]
 mod prompt_resolution;
 #[cfg(any(test, not(coverage)))]
@@ -81,7 +83,7 @@ pub enum Mode<'a> {
     },
     Guard {
         policy: &'a mut dyn AccessPolicy,
-        prompt: &'a dyn Prompt,
+        prompt: &'a (dyn Prompt + Sync),
         prompt_cache: PromptDecisionCache,
     },
 }
@@ -101,11 +103,31 @@ pub fn run(paths: &[PathBuf], excluded_paths: &[PathBuf], mode: Mode<'_>) -> Res
     let status = watch::install(fanotify_fd, paths, excluded_paths, &mode)?;
     eprintln!("{status}");
     crate::systemd_notify::notify_ready(std::env::var_os("NOTIFY_SOCKET").as_deref(), &status)?;
-    let mut mode = mode;
-    let mut runtime = EventRuntime::default();
-
-    loop {
-        read_events(fanotify_fd, paths, excluded_paths, &mut mode, &mut runtime)?;
+    match mode {
+        Mode::Guard {
+            policy,
+            prompt,
+            prompt_cache,
+        } => guard::run(
+            fanotify_fd,
+            paths,
+            excluded_paths,
+            policy,
+            prompt,
+            prompt_cache,
+        ),
+        mut audit_mode => {
+            let mut runtime = EventRuntime::default();
+            loop {
+                read_events(
+                    fanotify_fd,
+                    paths,
+                    excluded_paths,
+                    &mut audit_mode,
+                    &mut runtime,
+                )?;
+            }
+        }
     }
 }
 
@@ -151,6 +173,24 @@ fn read_events(
     mode: &mut Mode<'_>,
     runtime: &mut EventRuntime,
 ) -> Result<()> {
+    read_event_batch(fanotify_fd, |metadata, generation| {
+        handle_event(
+            fanotify_fd,
+            metadata,
+            generation,
+            paths,
+            excluded_paths,
+            mode,
+            runtime,
+        )
+    })
+}
+
+#[cfg(not(coverage))]
+fn read_event_batch(
+    fanotify_fd: RawFd,
+    mut handle_event: impl FnMut(&fanotify_event_metadata, Option<ProcessGeneration>) -> Result<()>,
+) -> Result<()> {
     let mut buffer = [0u8; EVENT_BUFFER_SIZE];
     let bytes_read = unsafe {
         read(
@@ -164,24 +204,13 @@ fn read_events(
         return Err(std::io::Error::last_os_error()).context("reading fanotify events failed");
     }
 
-    handle_event_buffer(
-        fanotify_fd,
-        &buffer[..bytes_read as usize],
-        paths,
-        excluded_paths,
-        mode,
-        runtime,
-    )
+    process_event_buffer(&buffer[..bytes_read as usize], &mut handle_event)
 }
 
 #[cfg(not(coverage))]
-fn handle_event_buffer(
-    fanotify_fd: RawFd,
+fn process_event_buffer(
     buffer: &[u8],
-    paths: &[PathBuf],
-    excluded_paths: &[PathBuf],
-    mode: &mut Mode<'_>,
-    runtime: &mut EventRuntime,
+    handle_event: &mut impl FnMut(&fanotify_event_metadata, Option<ProcessGeneration>) -> Result<()>,
 ) -> Result<()> {
     let mut offset = 0;
 
@@ -206,15 +235,7 @@ fn handle_event_buffer(
             ));
         }
         let generation = event::process_generation(&buffer[offset..event_end], &metadata)?;
-        handle_event(
-            fanotify_fd,
-            &metadata,
-            generation,
-            paths,
-            excluded_paths,
-            mode,
-            runtime,
-        )?;
+        handle_event(&metadata, generation)?;
         offset = event_end;
     }
 
@@ -296,13 +317,7 @@ fn decide_event(
         Mode::Audit { .. } | Mode::AuditPrompt { .. } => {
             decide_audit_mode(metadata, target_path, object, generation, mode, runtime)
         }
-        Mode::Guard {
-            policy,
-            prompt,
-            prompt_cache,
-        } => {
-            decide_guard_event_from_metadata(metadata, target_path, *policy, *prompt, prompt_cache)
-        }
+        Mode::Guard { .. } => unreachable!("guard events use the asynchronous guard loop"),
     }
 }
 
@@ -345,24 +360,19 @@ fn decide_audit_mode(
 }
 
 #[cfg(not(coverage))]
-fn decide_guard_event_from_metadata(
-    metadata: &fanotify_event_metadata,
-    target_path: &Path,
-    policy: &mut dyn AccessPolicy,
-    prompt: &dyn Prompt,
-    prompt_cache: &mut PromptDecisionCache,
-) -> Result<Decision> {
-    let access = access_kind(metadata.mask);
-    let process = inspect_process_or_unknown(metadata.pid, target_path, access);
-    decide_guard_event(
-        metadata.pid,
-        &process,
-        target_path,
-        access,
-        policy,
-        prompt,
-        prompt_cache,
-    )
+fn inspect_process_or_unknown(pid: i32, target_path: &Path, access: AccessKind) -> ProcessIdentity {
+    match inspect_process(pid) {
+        Ok(process) => process,
+        Err(error) => {
+            eprintln!(
+                "IDENTITY unavailable pid={} access={:?} path={} reason={error:#}; evaluating as unknown subject",
+                pid,
+                access,
+                target_path.display()
+            );
+            ProcessIdentity::unknown(pid)
+        }
+    }
 }
 
 #[cfg(not(coverage))]
@@ -422,53 +432,6 @@ fn decide_prompt_audit_event(
 }
 
 #[cfg(not(coverage))]
-fn inspect_process_or_unknown(pid: i32, target_path: &Path, access: AccessKind) -> ProcessIdentity {
-    match inspect_process(pid) {
-        Ok(process) => process,
-        Err(error) => {
-            eprintln!(
-                "IDENTITY unavailable pid={} access={:?} path={} reason={error:#}; evaluating as unknown subject",
-                pid,
-                access,
-                target_path.display()
-            );
-            ProcessIdentity::unknown(pid)
-        }
-    }
-}
-
-#[cfg(not(coverage))]
-fn decide_guard_event(
-    pid: i32,
-    process: &ProcessIdentity,
-    target_path: &Path,
-    access: AccessKind,
-    policy: &mut dyn AccessPolicy,
-    prompt: &dyn Prompt,
-    prompt_cache: &mut PromptDecisionCache,
-) -> Result<Decision> {
-    let subject = process.subject();
-    let policy_decision = policy.decide(&subject, target_path, access)?;
-    log_guard_decision(
-        pid,
-        &subject.executable,
-        target_path,
-        access,
-        policy_decision.clone(),
-    );
-
-    prompt_for_policy_decision(
-        prompt,
-        prompt_cache,
-        PromptDecisionKey::new(process.executable.clone(), access, &policy_decision),
-        &subject,
-        target_path,
-        read_wayland_env(pid),
-        policy_decision,
-    )
-}
-
-#[cfg(not(coverage))]
 fn log_audit_decision(
     pid: i32,
     executable: &Path,
@@ -477,19 +440,6 @@ fn log_audit_decision(
     decision: Decision,
 ) {
     log_policy_decision("audit", pid, executable, target_path, access, decision);
-}
-
-#[cfg(not(coverage))]
-fn log_guard_decision(
-    pid: i32,
-    executable: &Path,
-    target_path: &Path,
-    access: AccessKind,
-    decision: Decision,
-) {
-    if let Some(line) = format_guard_decision(pid, executable, target_path, access, decision) {
-        eprintln!("{line}");
-    }
 }
 
 #[cfg(not(coverage))]
@@ -579,12 +529,35 @@ fn respond_to_permission_event(
     metadata: &fanotify_event_metadata,
     decision: Decision,
 ) -> Result<()> {
-    if !is_permission_event(metadata.mask) {
+    respond_to_permission_event_fd(fanotify_fd, metadata.fd, metadata.mask, decision)
+}
+
+#[cfg(not(coverage))]
+pub(super) fn respond_and_close_event(
+    fanotify_fd: RawFd,
+    event_fd: RawFd,
+    event_mask: u64,
+    decision: Decision,
+) -> Result<()> {
+    let response_result =
+        respond_to_permission_event_fd(fanotify_fd, event_fd, event_mask, decision);
+    let close_result = event::close_descriptor(event_fd);
+    response_result.and(close_result)
+}
+
+#[cfg(not(coverage))]
+fn respond_to_permission_event_fd(
+    fanotify_fd: RawFd,
+    event_fd: RawFd,
+    event_mask: u64,
+    decision: Decision,
+) -> Result<()> {
+    if !is_permission_event(event_mask) {
         return Ok(());
     }
 
     let response = fanotify_response {
-        fd: metadata.fd,
+        fd: event_fd,
         response: response_code(decision),
     };
     let written = unsafe {

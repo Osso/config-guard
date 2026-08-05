@@ -31,6 +31,7 @@ Audit and guard runtime:
 - [x] In audit mode, log policy violations as `FORBID audit` lines for cross-owner access without denying the operation.
 - [x] In audit-prompt mode, invoke the configured session prompt for policy Prompt decisions, log the user's decision as `FORBID audit-prompt`, and always allow the underlying access.
 - [x] In guard mode, log policy violations as `FORBID guard` lines while invoking the configured prompt command for cross-owner access.
+- [x] In guard mode, continue servicing watched-path permission events while a prompt is active so prompt helpers can read watched files without deadlocking the original access.
 - [x] Keep `FORBID audit` specific to audit mode; guard violations use `FORBID guard`.
 - [x] In guard mode, block an open when the prompt explicitly denies it.
 - [x] Reuse an approved prompt answer for the same executable, access kind, reason, and policy scope.
@@ -121,6 +122,7 @@ CLI and deployment:
 
 - `src/main.rs` - CLI command parsing and command wiring for audit, audit-prompt, guard, reconcile, and prompt testing.
 - `src/fanotify.rs` - mode-specific fanotify setup, mount/tree marking, scope filtering, overflow handling, and guard responses.
+- `src/fanotify/guard.rs` - guard-mode event servicing, prompt coordination, and permission-event completion.
 - `src/fanotify/audit.rs` - audit and audit-prompt open-identity capture, close-event classification, policy evaluation, learning, and logging orchestration.
 - `src/fanotify/prompt_resolution.rs` - prompt decision caching, graphical-session detection, and prompt resolution.
 - `src/fanotify/audit_identity.rs` - bounded PID/object-identity queues bridging audit open and close events across path renames.
@@ -143,7 +145,7 @@ CLI and deployment:
 ## Tests asserting this spec
 
 - `tests/policy.rs` - policy decisions, including strict non-owner denial precedence and TOML parsing.
-- `tests/root_integration.rs` - privileged fanotify enforcement, including strict non-owner denial without prompt fallback.
+- `tests/root_integration.rs` - privileged fanotify enforcement, including strict non-owner denial without prompt fallback and prompt-helper reads from watched unprotected files without deadlock.
 - `tests/process_identity.rs` - process identity parsing contract.
 - `tests/learning.rs` - audit learning root selection and alias mapping.
 - `tests/reconcile.rs` - reconcile planning and apply behavior.

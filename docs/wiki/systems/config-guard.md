@@ -6,7 +6,7 @@ Config Guard watches sensitive configuration trees with Linux fanotify and evalu
 
 - `audit` logs policy violations as `FORBID audit` and always lets the access continue. Its service creates the `/run/config-guard` runtime directory but does not create the `enforcing` marker.
 - `audit-prompt` uses the same prompt backend as guard, logs policy violations as `FORBID audit` and the resulting user/default decision as `FORBID audit-prompt`, and always lets the access continue. Use it to validate the dialog before enforcement.
-- `guard` logs policy violations as `FORBID guard`, resolves them through authd or a configured prompt command, then permits or denies the event. Its service wants `secrets-broker.service` and creates `/run/config-guard/enforcing` only after Config Guard reports systemd readiness. The marker is a readiness/mode signal, not the credential-store permission boundary.
+- `guard` logs policy violations as `FORBID guard`, resolves them through authd or a configured prompt command, then permits or denies the event. While a prompt is active, guard continues servicing watched-path permission events needed by the prompt workflow, so helpers can load watched files without deadlocking the original access. Its service wants `secrets-broker.service` and creates `/run/config-guard/enforcing` only after Config Guard reports systemd readiness. The marker is a readiness/mode signal, not the credential-store permission boundary.
 
 ## Monitoring scope versus ownership scope
 

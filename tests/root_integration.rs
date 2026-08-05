@@ -113,6 +113,52 @@ fn guard_invokes_prompt_command_for_cross_owner_access() {
 
 #[test]
 #[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
+fn guard_prompt_command_can_read_watched_unprotected_file_before_completing() {
+    require_root();
+    let fixture = RootFixture::new(
+        "guard_prompt_command_can_read_watched_unprotected_file_before_completing",
+    );
+    fs::write(
+        fixture.unprotected_probe_path(),
+        "unprotected prompt input\n",
+    )
+    .expect("write unprotected prompt input");
+    fixture.configure_prompt_to_read_unprotected_file();
+    let mut guard = ConfigGuardProcess::start([
+        "guard",
+        "--path",
+        fixture.watch_root().to_str().unwrap(),
+        "--config",
+        fixture.config_path().to_str().unwrap(),
+        "--prompt-command",
+        fixture.prompt_command_path().to_str().unwrap(),
+        "--timeout-seconds",
+        "1",
+    ]);
+
+    guard.wait_for_line("watching ");
+    let output = run_with_timeout(
+        Command::new("cat").arg(fixture.probe_path()),
+        TIMEOUT,
+        "cat protected probe while prompt reads unprotected file",
+    );
+
+    assert!(output.status.success(), "cat should complete: {output:?}");
+    guard.wait_for_line("FORBID guard");
+
+    let prompt_log = fs::read_to_string(fixture.prompt_log_path()).expect("read prompt log");
+    assert!(
+        prompt_log.contains("--subject\ncat\n"),
+        "protected read should invoke the configured prompt command: {prompt_log}"
+    );
+    assert!(
+        fixture.prompt_completion_path().exists(),
+        "prompt command was killed before it could read the watched unprotected file and write its completion marker"
+    );
+}
+
+#[test]
+#[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
 fn guard_blocks_access_when_prompt_denies() {
     require_root();
     let fixture = RootFixture::new("guard_blocks_access_when_prompt_denies");
@@ -609,6 +655,28 @@ impl RootFixture {
 
     fn prompt_log_path(&self) -> PathBuf {
         self.root.join("prompt.log")
+    }
+
+    fn prompt_completion_path(&self) -> PathBuf {
+        self.root.join("prompt-complete")
+    }
+
+    fn unprotected_probe_path(&self) -> PathBuf {
+        self.watch_root().join("unprotected.txt")
+    }
+
+    fn configure_prompt_to_read_unprotected_file(&self) {
+        fs::write(
+            self.prompt_command_path(),
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" >> '{}'\ncat '{}' >/dev/null\nprintf 'completed\\n' > '{}'\nexit 0\n",
+                self.prompt_log_path().display(),
+                self.unprotected_probe_path().display(),
+                self.prompt_completion_path().display(),
+            ),
+        )
+        .expect("write prompt command");
+        make_executable(&self.prompt_command_path());
     }
 
     fn set_prompt_exit_code(&self, exit_code: u8) {

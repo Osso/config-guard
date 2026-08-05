@@ -45,25 +45,53 @@ pub fn prompt_for_policy_decision(
     env: HashMap<String, String>,
     decision: Decision,
 ) -> Result<Decision> {
+    if let Some(decision) =
+        immediate_prompt_decision(prompt, prompt_cache, prompt_key.as_ref(), &env, &decision)
+    {
+        return Ok(decision);
+    }
+
     let Decision::Prompt {
         reason,
         default,
         scope: _,
     } = decision
     else {
-        return Ok(decision);
+        unreachable!("non-prompt decisions resolve immediately")
+    };
+    let request = build_prompt_request(subject, target_path, reason, *default, env);
+
+    match ask_prompt(prompt, &request) {
+        PromptOutcome::Answer(decision) => {
+            cache_prompt_decision(prompt_cache, prompt_key, &decision);
+            Ok(decision)
+        }
+        PromptOutcome::Failure => Ok(request.default_decision),
+    }
+}
+
+pub(super) fn immediate_prompt_decision(
+    prompt: &dyn Prompt,
+    prompt_cache: &mut PromptDecisionCache,
+    prompt_key: Option<&PromptDecisionKey>,
+    env: &HashMap<String, String>,
+    decision: &Decision,
+) -> Option<Decision> {
+    let Decision::Prompt { default, .. } = decision else {
+        return Some(decision.clone());
     };
 
-    if let Some(decision) = cached_prompt_decision(prompt_cache, prompt_key.as_ref()) {
-        return Ok(decision);
+    if let Some(decision) = cached_prompt_decision(prompt_cache, prompt_key) {
+        return Some(decision);
     }
 
-    if prompt.requires_graphical_session() && !has_graphical_session(&env) {
-        return Ok(apply_default_decision(prompt_cache, prompt_key, *default));
+    if prompt.requires_graphical_session() && !has_graphical_session(env) {
+        let default_decision = default.as_ref().clone();
+        cache_prompt_decision(prompt_cache, prompt_key.cloned(), &default_decision);
+        return Some(default_decision);
     }
 
-    let request = build_prompt_request(subject, target_path, reason, *default, env);
-    ask_and_cache_prompt(prompt, prompt_cache, prompt_key, &request)
+    None
 }
 
 fn build_prompt_request<'a>(
@@ -82,34 +110,25 @@ fn build_prompt_request<'a>(
     }
 }
 
-fn ask_and_cache_prompt(
-    prompt: &dyn Prompt,
-    prompt_cache: &mut PromptDecisionCache,
-    prompt_key: Option<PromptDecisionKey>,
-    request: &PromptRequest<'_>,
-) -> Result<Decision> {
-    match prompt.ask(request) {
-        Ok(decision) => {
-            cache_prompt_decision(prompt_cache, prompt_key, &decision);
-            Ok(decision)
-        }
-        Err(error) => Ok(prompt_failure_decision(
-            request.subject,
-            request.target_path,
-            request.reason,
-            request.default_decision.clone(),
-            error,
-        )),
-    }
+pub(super) enum PromptOutcome {
+    Answer(Decision),
+    Failure,
 }
 
-fn apply_default_decision(
-    prompt_cache: &mut PromptDecisionCache,
-    prompt_key: Option<PromptDecisionKey>,
-    default_decision: Decision,
-) -> Decision {
-    cache_prompt_decision(prompt_cache, prompt_key, &default_decision);
-    default_decision
+pub(super) fn ask_prompt(prompt: &dyn Prompt, request: &PromptRequest<'_>) -> PromptOutcome {
+    match prompt.ask(request) {
+        Ok(decision) => PromptOutcome::Answer(decision),
+        Err(error) => {
+            prompt_failure_decision(
+                request.subject,
+                request.target_path,
+                request.reason,
+                request.default_decision.clone(),
+                error,
+            );
+            PromptOutcome::Failure
+        }
+    }
 }
 
 fn cached_prompt_decision(
@@ -119,7 +138,7 @@ fn cached_prompt_decision(
     prompt_key.and_then(|key| prompt_cache.get(key))
 }
 
-fn cache_prompt_decision(
+pub(super) fn cache_prompt_decision(
     prompt_cache: &mut PromptDecisionCache,
     prompt_key: Option<PromptDecisionKey>,
     decision: &Decision,
