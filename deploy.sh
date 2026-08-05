@@ -5,6 +5,7 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 expected_home="/home/osso"
 config_target="${expected_home}/.config/config-guard/config.toml"
 service_target="/etc/systemd/system/config-guard.service"
+enforcement_marker="/run/config-guard/enforcing"
 mode="audit"
 
 usage() {
@@ -102,6 +103,16 @@ verify_service() {
 
     if [[ "${restart_count}" != "0" ]]; then
         echo "config-guard service restarted during deployment: ${restart_count}" >&2
+        exit 1
+    fi
+
+    if [[ "${selected_mode}" == "guard" ]]; then
+        test -f "${enforcement_marker}" || {
+            echo "config-guard enforcement marker is missing: ${enforcement_marker}" >&2
+            exit 1
+        }
+    elif [[ -e "${enforcement_marker}" ]]; then
+        echo "config-guard audit mode left an enforcement marker: ${enforcement_marker}" >&2
         exit 1
     fi
 }
