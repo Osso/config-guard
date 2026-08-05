@@ -4,9 +4,9 @@ Config Guard watches sensitive configuration trees with Linux fanotify and evalu
 
 ## Runtime modes
 
-- `audit` logs policy violations as `FORBID audit` and always lets the access continue.
+- `audit` logs policy violations as `FORBID audit` and always lets the access continue. Its service creates the `/run/config-guard` runtime directory but does not create the `enforcing` marker.
 - `audit-prompt` uses the same prompt backend as guard, logs policy violations as `FORBID audit` and the resulting user/default decision as `FORBID audit-prompt`, and always lets the access continue. Use it to validate the dialog before enforcement.
-- `guard` logs policy violations as `FORBID guard`, resolves them through authd or a configured prompt command, then permits or denies the event.
+- `guard` logs policy violations as `FORBID guard`, resolves them through authd or a configured prompt command, then permits or denies the event. Its service wants `secrets-broker.service` and creates `/run/config-guard/enforcing` only after Config Guard reports systemd readiness. The marker is a readiness/mode signal, not the credential-store permission boundary.
 
 ## Monitoring scope versus ownership scope
 
@@ -46,10 +46,10 @@ Run `./deploy.sh` from the repository root for audit mode, or `./deploy.sh --mod
 1. Validates the selected mode before building or changing host state.
 2. Builds and installs the release binary to `~/.cargo/bin/config-guard`.
 3. Requires `HOME=/home/osso` and installs `config/osso.toml` to `/home/osso/.config/config-guard/config.toml` with mode `0600`, matching the systemd unit exactly.
-4. Uses one pooled `authsudo` invocation to install the audit or guard unit under `/etc/systemd/system/config-guard.service`, reload systemd, enable it at boot, and restart it. Both scopes explicitly include `~/.ssh` and `~/.kube`; monitoring scope remains distinct from policy ownership, with `~/.kube` owned by `kubectl` and `flux` listed as an explicit allowed subject.
+4. Uses one pooled `authsudo` invocation to install the audit or guard unit under `/etc/systemd/system/config-guard.service`, reload systemd, enable it at boot, and restart it. The guard unit wants `secrets-broker.service`; the audit unit has no such dependency. Both scopes explicitly include `~/.ssh` and `~/.kube`; monitoring scope remains distinct from policy ownership, with `~/.kube` owned by `kubectl` and `flux` listed as an explicit allowed subject.
 5. Keeps build, user configuration install, and post-restart health checks unprivileged.
-6. Relies on `Type=notify`: `systemctl restart` does not complete until the daemon sends `READY=1`, which happens only after all monitoring marks are installed.
-7. Waits six additional seconds, then verifies boot enablement, active state, `Type=notify`, the selected-mode `ExecStart`, a nonzero main PID, and zero restarts.
+6. Relies on `Type=notify`: `systemctl restart` does not complete until the daemon sends `READY=1`, which happens only after all monitoring marks are installed. Guard's `ExecStartPost` creates `/run/config-guard/enforcing` only after that readiness point; audit has no marker step.
+7. Waits six additional seconds, then verifies boot enablement, active state, `Type=notify`, the selected-mode `ExecStart`, a nonzero main PID, zero restarts, and marker presence in guard mode or absence in audit mode.
 
 Deployment fails if any bounded post-restart check fails. This proves initialized startup health and short-window stability, not long-term stability or policy completeness.
 
@@ -64,7 +64,7 @@ systemctl show config-guard.service -p Type -p ExecStart -p ExecMainStatus -p Ma
 journalctl -u config-guard.service -b
 ```
 
-Expected state: `enabled`, `active`, `Type=notify`, nonzero `MainPID`, `NRestarts=0`, and an `ExecStart` matching the selected mode.
+Expected state: `enabled`, `active`, `Type=notify`, nonzero `MainPID`, `NRestarts=0`, and an `ExecStart` matching the selected mode. Guard mode additionally requires `/run/config-guard/enforcing`; audit mode requires that marker to be absent. These checks describe deployment verification, not proof that either mode is currently live.
 
 During audit burn-in, review `FORBID audit` entries. Guard violations are logged as `FORBID guard`; audit labels do not indicate the active runtime mode. Add durable policy allows only for stable owners or repeatable workflows; do not encode one-off copy commands.
 
@@ -75,7 +75,7 @@ Before running `./deploy.sh --mode guard`:
 1. Complete an audit burn-in with normal workloads.
 2. Review repeated violations and update policy intentionally.
 3. Run privileged fanotify integration tests, including an explicit denied open.
-4. Accept that `fail_open = true` allows accesses when prompting fails or no graphical session is available. The deployed unit uses authd, whose graphical prompt is skipped without `WAYLAND_DISPLAY` and therefore uses the configured default. Guard mode is enforcement-capable, not strict fail-closed enforcement.
+4. Accept that `fail_open = true` allows accesses when prompting fails or no graphical session is available. The deployed unit uses authd, whose graphical prompt is skipped without `WAYLAND_DISPLAY` and therefore uses the configured default. Guard mode is enforcement-capable, not strict fail-closed enforcement. The explicit `/var/lib/secrets-broker` `deny_non_owner` rule remains earlier than prompt and fail-open handling, so non-owner credential-store access is denied without invoking that fallback.
 5. If `--prompt-command` is supplied for a manual guard run, it runs even without a graphical session: exit status 0 allows, exit status 1 denies, and a start failure, timeout, or other status uses the configured default. The deployed guard unit does not supply `--prompt-command`.
 6. Accept the current coverage limits: directories created after startup are not marked, and write-specific classification arrives only after a permitted write closes.
 

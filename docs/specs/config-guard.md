@@ -52,6 +52,9 @@ Audit and guard runtime:
 - [x] Treat fanotify queue overflow or an invalid event descriptor as a fatal monitoring error instead of silently losing coverage.
 - [x] Evaluate policy with an unknown subject when process inspection fails instead of bypassing the policy.
 - [x] Make deployment explicitly select audit or guard mode, wait for systemd readiness, then check the selected mode, active process, restart count, and boot enablement.
+- [x] Make guard service startup want `secrets-broker.service`.
+- [x] Create `/run/config-guard/enforcing` only after guard readiness; audit mode must not create the marker.
+- [x] Verify the selected service mode and marker presence or absence during deployment.
 - [x] Default deployment to audit mode and provide explicit guard transition and audit rollback commands while documenting future-directory, fail-open, and post-write limitations.
 - [x] Keep audit-prompt separate from the deployed audit service so dialog testing cannot enforce access.
 
@@ -91,7 +94,7 @@ Local policy file:
 - [x] Allow known owners configured in `config/osso.toml`.
 - [x] Allow `syncthing-cli` as a subject for both `$HOME/.config/syncthing-cli` and `$HOME/.config/syncthing`.
 - [x] Temporarily allow subject `git` to read only `$HOME/.config/gc` and `$HOME/.config/gmail-cli` because their credential files are intentionally tracked in the Provisioning repository; do not allow Git helpers or broader sensitive-config access, and retire this exception when tracked credential storage is replaced by a workflow that does not require Git to open these files.
-- [x] Protect `/var/lib/secrets-broker` as an owned credential store for `secrets-broker`, allow only `secrets-broker-admin` as an additional subject, and deny every other subject before prompt or fail-open handling.
+- [x] Protect `/var/lib/secrets-broker` as an owned credential store for `secrets-broker`, allow only `secrets-broker-admin` as an additional subject, and deny every other subject before prompt or fail-open handling; this strict denial remains separate from guard-mode prompt fallback.
 - [x] Leave `/etc/NetworkManager/dispatcher.d` and descendants unprotected for all subjects and access kinds through an explicit shared-path exception; keep `/etc/NetworkManager` and sibling subtrees owned and protected.
 - [x] Keep broad ownership entries removed for `/etc`, `/var`, `/var/log`, `$HOME/.local/share`, and `$HOME/.local/state`; protect sensitive subdirectories by listing them explicitly.
 - [x] Prompt dev tools that read sensitive configured paths.
