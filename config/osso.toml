@@ -145,11 +145,6 @@ owner = "pi"
 allowed_subjects = []
 
 [[owned_paths]]
-path = "/home/osso/.local/share/pi"
-owner = "pi"
-allowed_subjects = []
-
-[[owned_paths]]
 path = "/home/osso/.local/share/rtk"
 owner = "rtk"
 allowed_subjects = ["rtk"]
@@ -329,11 +324,6 @@ allowed_subjects = ["xdg-desktop-portal-termfilechooser"]
 [[owned_paths]]
 path = "/home/osso/.config/zed"
 owner = "zeditor"
-allowed_subjects = ["zed-editor"]
-
-[[owned_paths]]
-path = "/home/osso/.local/share/zed"
-owner = "zed"
 allowed_subjects = ["zed-editor"]
 
 [[owned_paths]]

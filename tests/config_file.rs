@@ -162,11 +162,11 @@ fn osso_config_allows_pi_state_access() {
 }
 
 #[test]
-fn osso_config_allows_pi_installation_access() {
+fn osso_config_allows_generic_node_to_read_pi_installation() {
     let policy = Policy::new(parse_osso_config());
 
     let decision = policy.decide(
-        &subject("pi"),
+        &subject("node"),
         "/home/osso/.local/share/pi/package.json",
         config_guard::policy::AccessKind::Read,
     );
@@ -340,11 +340,11 @@ fn osso_config_allows_wow_sim_state_access() {
 }
 
 #[test]
-fn osso_config_allows_zed_editor_state_reads() {
+fn osso_config_allows_generic_node_to_read_zed_state() {
     let policy = Policy::new(parse_osso_config());
 
     let decision = policy.decide(
-        &subject("zed-editor"),
+        &subject("node"),
         "/home/osso/.local/share/zed/db/0-stable/db.sqlite",
         config_guard::policy::AccessKind::Read,
     );
