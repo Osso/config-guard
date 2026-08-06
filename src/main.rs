@@ -586,30 +586,24 @@ mod tests {
         assert_eq!(main().unwrap(), std::process::ExitCode::SUCCESS);
     }
 
+    fn parsed_prompt_timeout(command: &str) -> u64 {
+        let args = Args::try_parse_from(["config-guard", command, "--path", "/tmp/watch"])
+            .expect("parse prompt timeout defaults");
+        match args.command {
+            Command::AuditPrompt {
+                timeout_seconds, ..
+            }
+            | Command::Guard {
+                timeout_seconds, ..
+            } => timeout_seconds,
+            _ => panic!("expected prompt-capable command"),
+        }
+    }
+
     #[test]
     fn cli_defaults_authd_prompt_timeout_to_thirty_five_seconds() {
-        let audit_prompt =
-            Args::try_parse_from(["config-guard", "audit-prompt", "--path", "/tmp/watch"])
-                .expect("parse audit-prompt defaults");
-        let guard = Args::try_parse_from(["config-guard", "guard", "--path", "/tmp/watch"])
-            .expect("parse guard defaults");
-
-        let Command::AuditPrompt {
-            timeout_seconds, ..
-        } = audit_prompt.command
-        else {
-            panic!("expected audit-prompt command");
-        };
-        let Command::Guard {
-            timeout_seconds: guard_timeout,
-            ..
-        } = guard.command
-        else {
-            panic!("expected guard command");
-        };
-
-        assert_eq!(timeout_seconds, 35);
-        assert_eq!(guard_timeout, 35);
+        assert_eq!(parsed_prompt_timeout("audit-prompt"), 35);
+        assert_eq!(parsed_prompt_timeout("guard"), 35);
     }
 
     #[test]
