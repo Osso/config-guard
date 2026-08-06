@@ -909,7 +909,10 @@ allowed_subjects = ["gvfsd-trash"]
 [[owned_paths]]
 path = "/home/osso/.local/share/firefox-backup"
 owner = "firefox-profile-backup"
-allowed_subjects = ["with-ancestor:sqlite3|firefox-profile-backup"]
+allowed_subjects = [
+  "with-ancestor:sqlite3|firefox-profile-backup",
+  "with-ancestor:systemd-executor|systemd",
+]
 
 [[owned_paths]]
 path = "/home/osso/.local/share/tradebot"

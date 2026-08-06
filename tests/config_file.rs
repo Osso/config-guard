@@ -606,6 +606,26 @@ fn osso_config_allows_firefox_backup_sqlite_only_with_backup_ancestor() {
 }
 
 #[test]
+fn osso_config_allows_firefox_backup_systemd_executor_with_systemd_ancestor() {
+    let policy = Policy::new(parse_osso_config());
+    let path = "/home/osso/.local/share/firefox-backup/current/cookies.sqlite";
+
+    let allowed = policy.decide(
+        &subject_with_ancestor("systemd-executor", "/usr/lib/systemd/systemd"),
+        path,
+        config_guard::policy::AccessKind::Write,
+    );
+    let untrusted = policy.decide(
+        &subject_with_ancestor("systemd-executor", "/usr/bin/bash"),
+        path,
+        config_guard::policy::AccessKind::Write,
+    );
+
+    assert_eq!(allowed, Decision::Allow);
+    assert!(matches!(untrusted, Decision::Prompt { .. }));
+}
+
+#[test]
 fn osso_config_keeps_ad_hoc_tools_prompted_for_explicit_protected_paths() {
     let policy = Policy::new(parse_osso_config());
 
