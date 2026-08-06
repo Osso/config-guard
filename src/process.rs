@@ -13,6 +13,7 @@ const WAYLAND_ENV_KEYS: &[&str] = &[
     "WAYLAND_DISPLAY",
     "XDG_RUNTIME_DIR",
     "XDG_SESSION_TYPE",
+    "XDG_SESSION_ID",
     "DBUS_SESSION_BUS_ADDRESS",
 ];
 
@@ -127,15 +128,20 @@ fn read_wayland_env_from_procfs(pid: i32) -> HashMap<String, String> {
         return HashMap::new();
     };
 
-    parse_environ(&bytes)
-        .into_iter()
-        .filter(|(key, _)| WAYLAND_ENV_KEYS.contains(&key.as_str()))
-        .collect()
+    select_wayland_env(&bytes)
 }
 
 #[cfg(coverage)]
 fn read_wayland_env_from_procfs(_pid: i32) -> HashMap<String, String> {
     HashMap::new()
+}
+
+#[cfg(any(test, not(coverage)))]
+fn select_wayland_env(bytes: &[u8]) -> HashMap<String, String> {
+    parse_environ(bytes)
+        .into_iter()
+        .filter(|(key, _)| WAYLAND_ENV_KEYS.contains(&key.as_str()))
+        .collect()
 }
 
 pub fn parse_environ(bytes: &[u8]) -> HashMap<String, String> {
@@ -254,7 +260,7 @@ fn read_ancestor_executables(pid: i32) -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProcessIdentity, parse_environ, strip_deleted_suffix};
+    use super::{ProcessIdentity, parse_environ, select_wayland_env, strip_deleted_suffix};
     #[cfg(coverage)]
     use super::{inspect_process, read_wayland_env};
     use std::path::PathBuf;
@@ -282,6 +288,16 @@ mod tests {
             strip_deleted_suffix(PathBuf::from("/opt/my (deleted) tool/bin")),
             PathBuf::from("/opt/my (deleted) tool/bin")
         );
+    }
+
+    #[test]
+    fn wayland_environment_keeps_the_target_session_id() {
+        let env = select_wayland_env(
+            b"WAYLAND_DISPLAY=wayland-1\0XDG_RUNTIME_DIR=/run/user/1000\0XDG_SESSION_ID=3\0IGNORED=value\0",
+        );
+
+        assert_eq!(env.get("XDG_SESSION_ID").map(String::as_str), Some("3"));
+        assert!(!env.contains_key("IGNORED"));
     }
 
     #[test]

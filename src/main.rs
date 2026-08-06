@@ -23,6 +23,8 @@ use std::process::ExitCode;
 #[cfg(not(coverage))]
 use std::time::Duration;
 
+const DEFAULT_AUTHD_PROMPT_TIMEOUT_SECONDS: u64 = 35;
+
 #[derive(Parser)]
 #[command(version, about = "Interactive guard for sensitive config file access")]
 struct Args {
@@ -51,7 +53,7 @@ enum Command {
         config: Option<PathBuf>,
         #[arg(long)]
         prompt_command: Option<PathBuf>,
-        #[arg(long, default_value_t = 10)]
+        #[arg(long, default_value_t = DEFAULT_AUTHD_PROMPT_TIMEOUT_SECONDS)]
         timeout_seconds: u64,
         #[arg(long)]
         learn_output: Option<PathBuf>,
@@ -65,7 +67,7 @@ enum Command {
         config: Option<PathBuf>,
         #[arg(long)]
         prompt_command: Option<PathBuf>,
-        #[arg(long, default_value_t = 10)]
+        #[arg(long, default_value_t = DEFAULT_AUTHD_PROMPT_TIMEOUT_SECONDS)]
         timeout_seconds: u64,
     },
     Reconcile {
@@ -225,7 +227,8 @@ fn run_test_prompt(
         default_decision,
         env: collect_wayland_env(),
     };
-    let decision = AuthdPrompt::new(Duration::from_secs(10)).ask(&request)?;
+    let decision = AuthdPrompt::new(Duration::from_secs(DEFAULT_AUTHD_PROMPT_TIMEOUT_SECONDS))
+        .ask(&request)?;
 
     println!("decision={decision:?}");
     Ok(match decision {
@@ -567,9 +570,11 @@ mod tests {
     #[cfg(coverage)]
     use super::main;
     use super::{
-        canonicalize_scope_paths_in, default_config_path_in, expand_scope_with_aliases,
-        load_policy_config, logical_policy_path, parse_decision, parse_decision_reason,
+        Args, Command, canonicalize_scope_paths_in, default_config_path_in,
+        expand_scope_with_aliases, load_policy_config, logical_policy_path, parse_decision,
+        parse_decision_reason,
     };
+    use clap::Parser;
     use config_guard::learning::PathAlias;
     use config_guard::policy::{Decision, DecisionReason};
     use std::fs;
@@ -579,6 +584,32 @@ mod tests {
     #[test]
     fn coverage_main_stub_succeeds() {
         assert_eq!(main().unwrap(), std::process::ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn cli_defaults_authd_prompt_timeout_to_thirty_five_seconds() {
+        let audit_prompt =
+            Args::try_parse_from(["config-guard", "audit-prompt", "--path", "/tmp/watch"])
+                .expect("parse audit-prompt defaults");
+        let guard = Args::try_parse_from(["config-guard", "guard", "--path", "/tmp/watch"])
+            .expect("parse guard defaults");
+
+        let Command::AuditPrompt {
+            timeout_seconds, ..
+        } = audit_prompt.command
+        else {
+            panic!("expected audit-prompt command");
+        };
+        let Command::Guard {
+            timeout_seconds: guard_timeout,
+            ..
+        } = guard.command
+        else {
+            panic!("expected guard command");
+        };
+
+        assert_eq!(timeout_seconds, 35);
+        assert_eq!(guard_timeout, 35);
     }
 
     #[test]

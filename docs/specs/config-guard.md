@@ -32,6 +32,8 @@ Audit and guard runtime:
 - [x] In audit-prompt mode, invoke the configured session prompt for policy Prompt decisions, log the user's decision as `FORBID audit-prompt`, and always allow the underlying access.
 - [x] In guard mode, log policy violations as `FORBID guard` lines while invoking the configured prompt command for cross-owner access.
 - [x] In guard mode, continue servicing watched-path permission events while a prompt is active so prompt helpers can read watched files without deadlocking the original access.
+- [x] Wait up to 35 seconds for authd's bounded authorization-service response before applying the configured default decision.
+- [x] Forward the target process's `XDG_SESSION_ID` so authd can verify and recover the exact locked session.
 - [x] Keep `FORBID audit` specific to audit mode; guard violations use `FORBID guard`.
 - [x] In guard mode, block an open when the prompt explicitly denies it.
 - [x] Reuse an approved prompt answer for the same executable, access kind, reason, and policy scope.
@@ -131,7 +133,7 @@ CLI and deployment:
 - `src/fanotify/event.rs` - fanotify metadata parsing, pidfd process-generation extraction, event target/object identity, and descriptor cleanup.
 - `src/fanotify/watch.rs` - audit mount marks and guard tree-mark installation.
 - `src/policy.rs` - policy config types, subject matching, ownership checks, sensitive-path checks, shared-path checks, and prompt decisions.
-- `src/process.rs` - `/proc` process inspection, process subject extraction, command parsing, ancestor discovery, and Wayland environment reads.
+- `src/process.rs` - `/proc` process inspection, process subject extraction, command parsing, ancestor discovery, and Wayland/logind session environment reads.
 - `src/prompt.rs` - authd and command prompt adapters plus timeout and exit-status decision mapping.
 - `src/systemd_notify.rs` - systemd readiness notification transport and socket addressing.
 - `src/learning.rs` - audit observation aggregation and learned TOML output for candidate owned paths.
@@ -156,6 +158,8 @@ CLI and deployment:
 - `src/fanotify/audit_identity.rs` unit tests - queued identities, bounded eviction, PID-generation replacement, take-on-close, and failed-open invalidation.
 - `src/fanotify/audit_process.rs` unit tests - exec-identity TTL, capacity eviction, dynamic-loader handling, pidfs validation, and pidfd generation isolation.
 - `src/systemd_notify.rs` unit tests - readiness message delivery over the systemd notification socket.
+- `src/main.rs` unit tests - authd service timeout defaults for prompt-capable commands.
+- `src/process.rs` unit tests - target Wayland/logind session environment selection.
 
 ## Known gaps (current cycle)
 
