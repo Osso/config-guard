@@ -65,8 +65,7 @@ enum GuardAction {
 
 struct GuardEvaluation {
     subject: ProcessSubject,
-    executable: Option<PathBuf>,
-    access: AccessKind,
+    prompt_key: Option<PromptDecisionKey>,
     policy_decision: Decision,
 }
 
@@ -474,6 +473,7 @@ fn evaluate_guard_access(
     let process = inspect_process_or_unknown(metadata.pid, target_path, access);
     let subject = process.subject();
     let policy_decision = policy.decide(&subject, target_path, access)?;
+    let prompt_key = PromptDecisionKey::new(&process, access, &policy_decision);
     log_guard_decision(
         metadata.pid,
         &subject.executable,
@@ -484,8 +484,7 @@ fn evaluate_guard_access(
 
     Ok(GuardEvaluation {
         subject,
-        executable: process.executable,
-        access,
+        prompt_key,
         policy_decision,
     })
 }
@@ -497,18 +496,15 @@ fn resolve_guard_action(
     prompt: &dyn Prompt,
     coordinator: &mut PromptCoordinator,
 ) -> GuardAction {
-    let prompt_key = PromptDecisionKey::new(
-        evaluation.executable,
-        evaluation.access,
-        &evaluation.policy_decision,
-    );
+    let GuardEvaluation {
+        subject,
+        prompt_key,
+        policy_decision,
+    } = evaluation;
     let env = read_wayland_env(pid);
-    if let Some(decision) = coordinator.immediate_decision(
-        prompt,
-        prompt_key.as_ref(),
-        &env,
-        &evaluation.policy_decision,
-    ) {
+    if let Some(decision) =
+        coordinator.immediate_decision(prompt, prompt_key.as_ref(), &env, &policy_decision)
+    {
         return GuardAction::Respond(decision);
     }
 
@@ -516,14 +512,14 @@ fn resolve_guard_action(
         reason,
         default,
         scope: _,
-    } = evaluation.policy_decision
+    } = policy_decision
     else {
         unreachable!("non-prompt guard decisions resolve immediately")
     };
 
     GuardAction::Prompt(Box::new(PromptSpec {
         key: prompt_key,
-        subject: evaluation.subject,
+        subject,
         target_path,
         reason,
         default_decision: *default,

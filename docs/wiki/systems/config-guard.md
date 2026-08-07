@@ -33,7 +33,7 @@ Audit and guard use different fanotify strategies:
 
 Audit requests an unlimited kernel event queue because the service runs with `CAP_SYS_ADMIN`, and any reported queue overflow or invalid event descriptor terminates the process. systemd then restarts it; coverage loss is never silently accepted.
 
-If process inspection fails, Config Guard logs the identity failure and evaluates policy using an explicit `unknown` subject. Unknown identities are not eligible for prompt-decision caching.
+Prompt answers are cached by verified process generation (PID, process start time, and executable), access kind, and decision reason rather than policy scope. One process scanning multiple protected roots therefore receives one prompt for equivalent reads; both Allow and Deny answers apply only to that process generation. A later process prompts again even when it runs the same executable. If process inspection cannot provide both executable and start-time identity, Config Guard logs the identity failure, evaluates policy using the available or explicit `unknown` subject, and does not cache the prompt answer.
 
 Deployment defaults to `audit`. Passing `--mode guard` installs the guard unit after an explicit post-burn-in decision. `audit-prompt` remains a manual diagnostic mode and is never installed as the system service.
 

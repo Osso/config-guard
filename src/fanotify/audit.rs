@@ -246,8 +246,7 @@ fn prompt_on_policy_violation(
         return Ok(());
     };
 
-    let prompt_key =
-        super::PromptDecisionKey::new(process.executable.clone(), access, &policy_decision);
+    let prompt_key = super::PromptDecisionKey::new(process, access, &policy_decision);
     let user_decision = super::prompt_for_policy_decision(
         prompt,
         evaluation.prompt_cache,

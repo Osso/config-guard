@@ -7,6 +7,9 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[path = "root_integration/prompt_cache.rs"]
+mod prompt_cache;
+
 const TIMEOUT: Duration = Duration::from_secs(5);
 
 #[test]

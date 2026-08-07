@@ -1,4 +1,5 @@
 use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject};
+use crate::process::ProcessIdentity;
 use crate::prompt::{Prompt, PromptRequest};
 use anyhow::Result;
 use std::collections::HashMap;
@@ -11,10 +12,11 @@ pub struct PromptDecisionCache {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PromptDecisionKey {
-    executable: Option<PathBuf>,
+    pid: i32,
+    start_time_ticks: u64,
+    executable: PathBuf,
     access: AccessKind,
     reason: DecisionReason,
-    scope: PathBuf,
 }
 
 impl PromptDecisionCache {
@@ -22,12 +24,10 @@ impl PromptDecisionCache {
         self.decisions.get(key).cloned()
     }
 
-    fn insert_allow_decision(&mut self, key: PromptDecisionKey, decision: Decision) {
-        if !matches!(decision, Decision::Allow) {
-            return;
+    fn insert_decision(&mut self, key: PromptDecisionKey, decision: Decision) {
+        if matches!(decision, Decision::Allow | Decision::Deny) {
+            self.decisions.insert(key, decision);
         }
-
-        self.decisions.insert(key, decision);
     }
 }
 
@@ -144,26 +144,28 @@ pub(super) fn cache_prompt_decision(
     decision: &Decision,
 ) {
     if let Some(key) = prompt_key {
-        prompt_cache.insert_allow_decision(key, decision.clone());
+        prompt_cache.insert_decision(key, decision.clone());
     }
 }
 
 impl PromptDecisionKey {
     pub(super) fn new(
-        executable: Option<PathBuf>,
+        process: &ProcessIdentity,
         access: AccessKind,
         decision: &Decision,
     ) -> Option<Self> {
-        let executable = executable?;
-        let Decision::Prompt { reason, scope, .. } = decision else {
+        let executable = process.executable.clone()?;
+        let start_time_ticks = process.start_time_ticks?;
+        let Decision::Prompt { reason, .. } = decision else {
             return None;
         };
 
         Some(Self {
-            executable: Some(executable),
+            pid: process.pid,
+            start_time_ticks,
+            executable,
             access,
             reason: *reason,
-            scope: scope.clone(),
         })
     }
 }

@@ -10,7 +10,6 @@ use super::{
     is_permission_event, is_watched_path, prompt_for_policy_decision, response_code,
 };
 use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject};
-#[cfg(not(coverage))]
 use crate::process::ProcessIdentity;
 use crate::prompt::{Prompt, PromptRequest};
 use std::cell::Cell;
@@ -103,6 +102,17 @@ fn cat_subject() -> ProcessSubject {
     }
 }
 
+fn cat_process(pid: i32, start_time_ticks: u64) -> ProcessIdentity {
+    ProcessIdentity {
+        pid,
+        executable: Some(PathBuf::from("/usr/bin/cat")),
+        command: vec!["cat".to_string()],
+        cwd: None,
+        start_time_ticks: Some(start_time_ticks),
+        ancestors: Vec::new(),
+    }
+}
+
 fn prompt_decision(scope: &str) -> Decision {
     Decision::Prompt {
         reason: DecisionReason::CrossOwnerRead,
@@ -118,19 +128,17 @@ fn graphical_env() -> HashMap<String, String> {
 fn resolve_cat_prompt(
     prompt: &dyn Prompt,
     cache: &mut PromptDecisionCache,
-    subject: &ProcessSubject,
+    process: &ProcessIdentity,
     target_path: &str,
+    scope: &str,
 ) -> Decision {
-    let policy_decision = prompt_decision("/etc/authd");
+    let subject = process.subject();
+    let policy_decision = prompt_decision(scope);
     prompt_for_policy_decision(
         prompt,
         cache,
-        super::PromptDecisionKey::new(
-            Some(subject.executable.clone()),
-            AccessKind::Read,
-            &policy_decision,
-        ),
-        subject,
+        super::PromptDecisionKey::new(process, AccessKind::Read, &policy_decision),
+        &subject,
         Path::new(target_path),
         graphical_env(),
         policy_decision,
@@ -226,22 +234,24 @@ fn resolve_invokes_headless_prompt_without_graphical_session() {
 }
 
 #[test]
-fn resolve_reuses_approved_binary_for_same_scope() {
-    let subject = cat_subject();
+fn resolve_reuses_approval_for_same_process_across_scopes() {
+    let process = cat_process(42, 100);
     let prompt = CountingPrompt::new(Decision::Allow);
     let mut cache = PromptDecisionCache::default();
 
     let first = resolve_cat_prompt(
         &prompt,
         &mut cache,
-        &subject,
+        &process,
         "/etc/authd/policies.d/wheel.toml",
+        "/etc/authd",
     );
     let second = resolve_cat_prompt(
         &prompt,
         &mut cache,
-        &subject,
-        "/etc/authd/policies.d/claude.toml",
+        &process,
+        "/home/osso/.ssh/config",
+        "/home/osso/.ssh",
     );
 
     assert_eq!(first, Decision::Allow);
@@ -250,26 +260,59 @@ fn resolve_reuses_approved_binary_for_same_scope() {
 }
 
 #[test]
-fn resolve_does_not_cache_denials_for_binary() {
-    let subject = cat_subject();
+fn resolve_reuses_denial_for_same_process_across_scopes() {
+    let process = cat_process(42, 100);
     let prompt = CountingPrompt::new(Decision::Deny);
     let mut cache = PromptDecisionCache::default();
 
     let first = resolve_cat_prompt(
         &prompt,
         &mut cache,
-        &subject,
+        &process,
         "/etc/authd/policies.d/wheel.toml",
+        "/etc/authd",
     );
     let second = resolve_cat_prompt(
         &prompt,
         &mut cache,
-        &subject,
-        "/etc/authd/policies.d/claude.toml",
+        &process,
+        "/home/osso/.ssh/config",
+        "/home/osso/.ssh",
     );
 
     assert_eq!(first, Decision::Deny);
     assert_eq!(second, Decision::Deny);
+    assert_eq!(
+        prompt.calls.get(),
+        1,
+        "one process denial must not trigger another prompt"
+    );
+}
+
+#[test]
+fn resolve_prompts_again_after_process_generation_changes() {
+    let first_process = cat_process(42, 100);
+    let next_process = cat_process(42, 200);
+    let prompt = CountingPrompt::new(Decision::Allow);
+    let mut cache = PromptDecisionCache::default();
+
+    let first = resolve_cat_prompt(
+        &prompt,
+        &mut cache,
+        &first_process,
+        "/etc/authd/policies.d/wheel.toml",
+        "/etc/authd",
+    );
+    let second = resolve_cat_prompt(
+        &prompt,
+        &mut cache,
+        &next_process,
+        "/etc/authd/policies.d/claude.toml",
+        "/etc/authd",
+    );
+
+    assert_eq!(first, Decision::Allow);
+    assert_eq!(second, Decision::Allow);
     assert_eq!(prompt.calls.get(), 2);
 }
 
@@ -308,9 +351,23 @@ fn permission_event_helpers_map_masks_and_responses() {
     assert_ne!(guard_watch_mask() & libc::FAN_OPEN_PERM, 0);
     assert_ne!(guard_watch_mask() & libc::FAN_CLOSE_WRITE, 0);
     assert_eq!(guard_watch_mask() & libc::FAN_ACCESS_PERM, 0);
+    let unknown_process = ProcessIdentity::unknown(42);
+    let unverified_process = ProcessIdentity::from_executable(42, PathBuf::from("/usr/bin/cat"));
     assert!(
-        super::PromptDecisionKey::new(None, AccessKind::Read, &prompt_decision("/etc/authd"))
-            .is_none()
+        super::PromptDecisionKey::new(
+            &unknown_process,
+            AccessKind::Read,
+            &prompt_decision("/etc/authd")
+        )
+        .is_none()
+    );
+    assert!(
+        super::PromptDecisionKey::new(
+            &unverified_process,
+            AccessKind::Read,
+            &prompt_decision("/etc/authd")
+        )
+        .is_none()
     );
     assert_eq!(response_code(Decision::Allow), libc::FAN_ALLOW);
     assert_eq!(response_code(Decision::Deny), libc::FAN_DENY);

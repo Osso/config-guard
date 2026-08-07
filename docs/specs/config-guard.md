@@ -36,8 +36,9 @@ Audit and guard runtime:
 - [x] Forward the target process's `XDG_SESSION_ID` so authd can verify and recover the exact locked session.
 - [x] Keep `FORBID audit` specific to audit mode; guard violations use `FORBID guard`.
 - [x] In guard mode, block an open when the prompt explicitly denies it.
-- [x] Reuse an approved prompt answer for the same executable, access kind, reason, and policy scope.
-- [x] Do not cache explicit prompt denials as durable executable approvals.
+- [x] Reuse one Allow or Deny prompt answer for the same verified process generation, access kind, and reason across policy scopes.
+- [x] Require a new prompt for a new process generation even when the executable path is unchanged.
+- [x] Do not cache prompt answers when executable or process-generation identity is unavailable.
 - [x] Watch multiple roots from one process.
 - [x] Keep fanotify monitoring scope independent from policy ownership scope: broad monitored roots provide observation coverage but do not implicitly protect every descendant.
 - [x] Canonicalize configured roots and exclusions before monitoring so scope filtering is independent of the service working directory and `..` spelling.
@@ -148,7 +149,7 @@ CLI and deployment:
 ## Tests asserting this spec
 
 - `tests/policy.rs` - policy decisions, including strict non-owner denial precedence and TOML parsing.
-- `tests/root_integration.rs` - privileged fanotify enforcement, including strict non-owner denial without prompt fallback and prompt-helper reads from watched unprotected files without deadlock.
+- `tests/root_integration.rs` - privileged fanotify enforcement, including one-prompt reuse across scopes for one process generation, re-prompting for a new generation, strict non-owner denial without prompt fallback, and prompt-helper reads from watched unprotected files without deadlock.
 - `tests/process_identity.rs` - process identity parsing contract.
 - `tests/learning.rs` - audit learning root selection and alias mapping.
 - `tests/reconcile.rs` - reconcile planning and apply behavior.
