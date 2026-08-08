@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 
 #[path = "root_integration/prompt_cache.rs"]
 mod prompt_cache;
+#[path = "root_integration/stale_prompt.rs"]
+mod stale_prompt;
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -549,36 +551,6 @@ impl ConfigGuardProcess {
         }
     }
 
-    fn wait_for_lines(&mut self, needle: &str, count: usize) -> Vec<String> {
-        let deadline = Instant::now() + TIMEOUT;
-        let mut matches = Vec::new();
-        let mut seen = String::new();
-
-        while matches.len() < count {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            let line = self
-                .stderr_lines
-                .recv_timeout(remaining.min(Duration::from_millis(250)));
-
-            match line {
-                Ok(line) if line_matches(&line, needle) => matches.push(line),
-                Ok(line) => append_seen_line(&mut seen, &line),
-                Err(mpsc::RecvTimeoutError::Timeout) if Instant::now() < deadline => {
-                    assert_still_running(&mut self.child, &seen);
-                }
-                Err(_) => panic!(
-                    "config-guard stderr closed before {count} {needle} lines; seen: {seen:?}"
-                ),
-            }
-
-            if Instant::now() >= deadline {
-                panic!("timed out waiting for {count} {needle} lines; seen: {seen:?}");
-            }
-        }
-
-        matches
-    }
-
     fn assert_no_line(&mut self, needle: &str, duration: Duration) {
         let deadline = Instant::now() + duration;
 
@@ -696,29 +668,6 @@ impl RootFixture {
 
     fn unprotected_probe_path(&self) -> PathBuf {
         self.watch_root().join("unprotected.txt")
-    }
-
-    fn configure_stale_prompt_regression(&self, python_executable: &Path) {
-        fs::write(
-            self.config_path(),
-            format!(
-                "fail_open = true\ndev_tools = [\"exe:{}\"]\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"not-python\"\nallowed_subjects = []\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"not-python\"\nallowed_subjects = []\n\n[[sensitive_paths]]\npath = \"{}\"\n",
-                python_executable.display(),
-                self.protected_dir().display(),
-                self.other_protected_dir().display(),
-                self.other_protected_dir().display(),
-            ),
-        )
-        .expect("write stale prompt regression policy");
-        fs::write(
-            self.prompt_command_path(),
-            format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$@\" >> '{}'\nsleep 2\nexit 0\n",
-                self.prompt_log_path().display(),
-            ),
-        )
-        .expect("write delayed prompt command");
-        make_executable(&self.prompt_command_path());
     }
 
     fn configure_prompt_to_read_unprotected_file(&self) {
