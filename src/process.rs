@@ -70,6 +70,20 @@ pub fn inspect_process(pid: i32) -> Result<ProcessIdentity> {
 }
 
 #[cfg(not(coverage))]
+pub fn is_process_generation_current(pid: i32, expected_start_time_ticks: u64) -> bool {
+    let stat_path = PathBuf::from("/proc").join(pid.to_string()).join("stat");
+    read_start_time_ticks(stat_path)
+        .ok()
+        .flatten()
+        .is_some_and(|start_time_ticks| start_time_ticks == expected_start_time_ticks)
+}
+
+#[cfg(coverage)]
+pub fn is_process_generation_current(_pid: i32, _expected_start_time_ticks: u64) -> bool {
+    true
+}
+
+#[cfg(not(coverage))]
 fn inspect_process_from_procfs(pid: i32) -> Result<ProcessIdentity> {
     let proc_dir = PathBuf::from("/proc").join(pid.to_string());
     let executable = read_exe_link(&proc_dir.join("exe"));

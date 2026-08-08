@@ -37,6 +37,7 @@ Audit and guard runtime:
 - [x] Keep `FORBID audit` specific to audit mode; guard violations use `FORBID guard`.
 - [x] In guard mode, block an open when the prompt explicitly denies it.
 - [x] Reuse one Allow or Deny prompt answer for the same verified process generation, access kind, and reason across policy scopes.
+- [x] Before presenting each queued guard prompt, revalidate the verified process generation; if the process exited or the PID was reused, discard the stale prompt and apply the configured default to its pending events.
 - [x] Require a new prompt for a new process generation even when the executable path is unchanged.
 - [x] Do not cache prompt answers when executable or process-generation identity is unavailable.
 - [x] Watch multiple roots from one process.
@@ -149,7 +150,7 @@ CLI and deployment:
 ## Tests asserting this spec
 
 - `tests/policy.rs` - policy decisions, including strict non-owner denial precedence and TOML parsing.
-- `tests/root_integration.rs` - privileged fanotify enforcement, including one-prompt reuse across scopes for one process generation, re-prompting for a new generation, strict non-owner denial without prompt fallback, and prompt-helper reads from watched unprotected files without deadlock.
+- `tests/root_integration.rs` - privileged fanotify enforcement, including one-prompt reuse across scopes for one process generation, stale queued-prompt suppression after process exit, re-prompting for a new generation, strict non-owner denial without prompt fallback, and prompt-helper reads from watched unprotected files without deadlock.
 - `tests/process_identity.rs` - process identity parsing contract.
 - `tests/learning.rs` - audit learning root selection and alias mapping.
 - `tests/reconcile.rs` - reconcile planning and apply behavior.

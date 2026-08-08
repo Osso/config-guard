@@ -1,5 +1,5 @@
 use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject};
-use crate::process::ProcessIdentity;
+use crate::process::{ProcessIdentity, is_process_generation_current};
 use crate::prompt::{Prompt, PromptRequest};
 use anyhow::Result;
 use std::collections::HashMap;
@@ -149,6 +149,10 @@ pub(super) fn cache_prompt_decision(
 }
 
 impl PromptDecisionKey {
+    pub(super) fn is_current_process(&self) -> bool {
+        is_process_generation_current(self.pid, self.start_time_ticks)
+    }
+
     pub(super) fn new(
         process: &ProcessIdentity,
         access: AccessKind,

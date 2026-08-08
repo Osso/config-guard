@@ -26,6 +26,7 @@ type PromptId = u64;
 
 struct PromptJob {
     id: PromptId,
+    key: Option<PromptDecisionKey>,
     subject: ProcessSubject,
     target_path: PathBuf,
     reason: DecisionReason,
@@ -215,6 +216,7 @@ impl PromptCoordinator {
         };
         let job = PromptJob {
             id,
+            key: spec.key.clone(),
             subject: spec.subject,
             target_path: spec.target_path,
             reason: spec.reason,
@@ -546,16 +548,9 @@ fn run_prompt_worker(
     mut wake_writer: UnixStream,
 ) -> Result<()> {
     while let Ok(job) = job_receiver.recv() {
-        let request = PromptRequest {
-            subject: &job.subject,
-            target_path: &job.target_path,
-            reason: job.reason,
-            default_decision: job.default_decision,
-            env: job.env,
-        };
         let completion = PromptCompletion {
             id: job.id,
-            outcome: ask_prompt(prompt, &request),
+            outcome: resolve_prompt_job(prompt, &job),
         };
         if completion_sender.send(completion).is_err() {
             return Ok(());
@@ -569,6 +564,25 @@ fn run_prompt_worker(
     }
 
     Ok(())
+}
+
+fn resolve_prompt_job(prompt: &dyn Prompt, job: &PromptJob) -> PromptOutcome {
+    if job
+        .key
+        .as_ref()
+        .is_some_and(|key| !key.is_current_process())
+    {
+        return PromptOutcome::Failure;
+    }
+
+    let request = PromptRequest {
+        subject: &job.subject,
+        target_path: &job.target_path,
+        reason: job.reason,
+        default_decision: job.default_decision.clone(),
+        env: job.env.clone(),
+    };
+    ask_prompt(prompt, &request)
 }
 
 fn respond_with_decision(
