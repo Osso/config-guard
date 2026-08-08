@@ -3,7 +3,7 @@ use super::{
 };
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
@@ -179,6 +179,198 @@ fn guard_does_not_reuse_deny_for_owner_ancestry() {
         2,
         "denial must remain process-generation scoped"
     );
+}
+
+#[test]
+#[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
+fn guard_reuses_allow_across_runners_within_one_pi_session() {
+    require_root();
+    let fixture = RootFixture::new("guard_reuses_allow_across_runners_within_one_pi_session");
+    configure_pi_state(&fixture);
+    let database = fixture.protected_dir().join("control.sqlite");
+    let write_ahead_log = fixture.protected_dir().join("control.sqlite-wal");
+    let shared_memory = fixture.protected_dir().join("control.sqlite-shm");
+    for path in [&database, &write_ahead_log, &shared_memory] {
+        fs::write(path, "sqlite\n").expect("create sqlite fixture file");
+    }
+    let pi_binary = compile_pi_helper(&fixture);
+    let mut session_a = PiSession::start(&pi_binary);
+    let mut session_b = PiSession::start(&pi_binary);
+    let mut guard = ConfigGuardProcess::start([
+        "guard",
+        "--path",
+        fixture.watch_root().to_str().unwrap(),
+        "--config",
+        fixture.config_path().to_str().unwrap(),
+        "--prompt-command",
+        fixture.prompt_command_path().to_str().unwrap(),
+        "--timeout-seconds",
+        "1",
+    ]);
+
+    guard.wait_for_line("watching ");
+    let runner_a1 = session_a.run_runner(&database, &write_ahead_log, &shared_memory);
+    assert!(
+        runner_a1.success,
+        "session A runner A1 failed: {runner_a1:?}"
+    );
+    assert_eq!(
+        prompt_count(&fixture),
+        1,
+        "A1 should receive the first Allow prompt"
+    );
+
+    let runner_a2 = session_a.run_runner(&database, &write_ahead_log, &shared_memory);
+    assert!(
+        runner_a2.success,
+        "session A runner A2 failed: {runner_a2:?}"
+    );
+    assert_ne!(
+        runner_a1.pid, runner_a2.pid,
+        "A1 and A2 must be distinct runners"
+    );
+    assert_eq!(
+        prompt_count(&fixture),
+        1,
+        "A2 under the same logical Pi session must reuse A1's Allow"
+    );
+
+    let runner_b1 = session_b.run_runner(&database, &write_ahead_log, &shared_memory);
+    assert!(
+        runner_b1.success,
+        "session B runner B1 failed: {runner_b1:?}"
+    );
+    assert_ne!(
+        runner_a1.pid, runner_b1.pid,
+        "session B must use a distinct runner"
+    );
+    assert_eq!(
+        prompt_count(&fixture),
+        2,
+        "B1 under another logical Pi session must receive a new prompt; session A PID={} session B PID={}; prompt log: {}",
+        session_a.pid(),
+        session_b.pid(),
+        fs::read_to_string(fixture.prompt_log_path()).expect("read prompt log")
+    );
+}
+
+fn configure_pi_state(fixture: &RootFixture) {
+    fs::write(
+        fixture.config_path(),
+        format!(
+            "fail_open = false\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"config-guard-test-owner\"\nallowed_subjects = []\n",
+            fixture.protected_dir().display()
+        ),
+    )
+    .expect("write Pi-owned config");
+}
+
+fn compile_pi_helper(fixture: &RootFixture) -> PathBuf {
+    let source_path = fixture.root.join("pi-helper.rs");
+    let binary_path = fixture.root.join("config-guard-test-owner");
+    fs::write(&source_path, pi_helper_source()).expect("write Pi helper source");
+    let status = Command::new("rustc")
+        .args(["--edition=2021"])
+        .arg(&source_path)
+        .arg("-o")
+        .arg(&binary_path)
+        .status()
+        .expect("compile Pi helper");
+    assert!(status.success(), "Pi helper compilation failed: {status}");
+    binary_path
+}
+
+#[derive(Debug)]
+struct RunnerResult {
+    pid: u32,
+    success: bool,
+}
+
+struct PiSession {
+    child: Child,
+    stdin: ChildStdin,
+    responses: Receiver<String>,
+}
+
+impl PiSession {
+    fn start(binary_path: &Path) -> Self {
+        let mut child = Command::new(binary_path)
+            .arg("owner")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn persistent Pi session");
+        let stdin = child.stdin.take().expect("Pi session stdin");
+        let stdout = child.stdout.take().expect("Pi session stdout");
+        let (sender, responses) = mpsc::channel();
+        thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                if sender.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+
+        Self {
+            child,
+            stdin,
+            responses,
+        }
+    }
+
+    fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
+    fn run_runner(
+        &mut self,
+        database: &Path,
+        write_ahead_log: &Path,
+        shared_memory: &Path,
+    ) -> RunnerResult {
+        writeln!(
+            self.stdin,
+            "run\t{}\t{}\t{}",
+            database.display(),
+            write_ahead_log.display(),
+            shared_memory.display()
+        )
+        .expect("send runner request to Pi session");
+        self.stdin.flush().expect("flush runner request");
+        let response = self
+            .responses
+            .recv_timeout(TIMEOUT)
+            .expect("runner response before timeout");
+        let mut fields = response.split('\t');
+        let pid = fields
+            .next()
+            .expect("runner response PID")
+            .parse()
+            .expect("runner PID integer");
+        let status = fields
+            .next()
+            .expect("runner response status")
+            .parse::<i32>()
+            .expect("runner status integer");
+
+        RunnerResult {
+            pid,
+            success: status == 0,
+        }
+    }
+}
+
+impl Drop for PiSession {
+    fn drop(&mut self) {
+        let _ = writeln!(self.stdin, "quit");
+        let _ = self.stdin.flush();
+        let _ = self.child.wait();
+    }
+}
+
+fn pi_helper_source() -> &'static str {
+    include_str!("fixtures/pi_session_helper.rs")
 }
 
 fn configure_owned_scopes(fixture: &RootFixture, owner: &str) {

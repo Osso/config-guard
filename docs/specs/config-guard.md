@@ -39,8 +39,8 @@ Audit and guard runtime:
 - [x] In guard mode, block an open when the prompt explicitly denies it.
 - [x] Reuse one Allow or Deny prompt answer for the same verified process generation, access kind, and reason across policy scopes.
 - [x] Before presenting each queued guard prompt, revalidate the verified process generation; if the process exited or the PID was reused, discard the stale prompt and apply the configured default to its pending events.
-- [x] On an explicit Allow for a cross-owner helper under its owning process, create a runtime-only ancestry authorization keyed by the exact helper executable, exact owning ancestor generation (PID, start time, and executable), and owned scope; cover all access kinds in that scope until Config Guard restarts.
-- [x] Reuse runtime ancestry authorization only for the matching owning ancestor generation; other owner generations require a new prompt even when the helper executable is unchanged.
+- [x] On an explicit Allow for a cross-owner helper under its owning process, create a runtime-only ancestry authorization keyed by the exact helper executable, the root generation of the nearest contiguous chain of matching owner executables, and owned scope; cover all access kinds in that scope until Config Guard restarts.
+- [x] Reuse runtime ancestry authorization for short-lived detached runners in the same contiguous owner chain; a different owner-session root requires a new prompt, and a matching owner executable separated by a non-owner process does not share authorization.
 - [x] Require a new prompt when no matching runtime ancestry authorization exists, and do not create ancestry authorization from an explicit Deny or a default decision.
 - [x] Do not cache prompt answers or create ancestry authorization when executable or process-generation identity is unavailable.
 - [x] Watch multiple roots from one process.

@@ -39,14 +39,7 @@ impl AncestryAuthorization {
         }
 
         let subject_executable = process.executable.clone()?;
-        let owner_ancestor = process
-            .ancestor_processes
-            .iter()
-            .find(|ancestor| {
-                ancestor.start_time_ticks.is_some()
-                    && executable_name(&ancestor.executable) == owner_subject
-            })?
-            .clone();
+        let owner_ancestor = owner_chain_root(process, owner_subject)?.clone();
 
         Some(Self {
             subject_executable,
@@ -290,6 +283,24 @@ fn answer_from_status(
         Some(1) => PromptAnswer::Explicit(Decision::Deny),
         _ => PromptAnswer::Default(default_decision.clone()),
     }
+}
+
+fn owner_chain_root<'a>(
+    process: &'a ProcessIdentity,
+    owner_subject: &str,
+) -> Option<&'a ProcessAncestor> {
+    process
+        .ancestor_processes
+        .iter()
+        .skip_while(|ancestor| !ancestor_matches_owner(ancestor, owner_subject))
+        .take_while(|ancestor| {
+            ancestor_matches_owner(ancestor, owner_subject) && ancestor.start_time_ticks.is_some()
+        })
+        .last()
+}
+
+fn ancestor_matches_owner(ancestor: &ProcessAncestor, owner_subject: &str) -> bool {
+    executable_name(&ancestor.executable) == owner_subject
 }
 
 fn display_subject(subject: &ProcessSubject) -> String {

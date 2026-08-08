@@ -4,6 +4,9 @@ use super::AccessPolicy;
 use super::audit::{access_kinds as audit_access_kinds, decide_event as decide_audit_event};
 #[cfg(coverage)]
 use super::{Mode, run};
+
+mod ancestry_authorization;
+
 use super::{
     PolicyPromptRequest, PromptDecisionCache, access_kind, audit_watch_mask, child_directories,
     ensure_event_descriptor, ensure_path_exists, format_guard_decision, guard_watch_mask,
@@ -136,20 +139,15 @@ fn cat_process_with_pi_ancestor(
     pi_pid: i32,
     pi_start_time_ticks: u64,
 ) -> ProcessIdentity {
-    let pi_executable = PathBuf::from("/home/osso/.local/share/pi/pi");
-    ProcessIdentity {
-        pid,
-        executable: Some(PathBuf::from("/usr/bin/cat")),
-        command: vec!["cat".to_string()],
-        cwd: None,
-        start_time_ticks: Some(start_time_ticks),
-        ancestors: vec![pi_executable.clone()],
-        ancestor_processes: vec![ProcessAncestor {
-            pid: pi_pid,
-            executable: pi_executable,
-            start_time_ticks: Some(pi_start_time_ticks),
-        }],
-    }
+    let pi_ancestor = ProcessAncestor {
+        pid: pi_pid,
+        executable: PathBuf::from("/home/osso/.local/share/pi/pi"),
+        start_time_ticks: Some(pi_start_time_ticks),
+    };
+    let mut process = cat_process(pid, start_time_ticks);
+    process.ancestors.push(pi_ancestor.executable.clone());
+    process.ancestor_processes.push(pi_ancestor);
+    process
 }
 
 fn prompt_decision(scope: &str) -> Decision {
