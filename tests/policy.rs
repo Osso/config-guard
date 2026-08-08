@@ -42,6 +42,52 @@ fn same_owner_access_is_allowed_without_prompt() {
 }
 
 #[test]
+fn gitignore_access_is_always_allowed() {
+    let mut config = PolicyConfig::default();
+    config.owned_paths.push(OwnedPath {
+        path: PathBuf::from("/home/osso/.config/claude"),
+        owner: "claude".to_string(),
+        allowed_subjects: Vec::new(),
+        deny_non_owner: true,
+    });
+    let policy = Policy::new(config);
+
+    for access in [
+        AccessKind::Read,
+        AccessKind::Write,
+        AccessKind::DestructiveWrite,
+    ] {
+        let decision = policy.decide(
+            &subject("fd"),
+            "/home/osso/.config/claude/nested/.gitignore",
+            access,
+        );
+
+        assert_eq!(decision, Decision::Allow);
+    }
+}
+
+#[test]
+fn gitignore_exception_requires_exact_file_name() {
+    let mut config = PolicyConfig::default();
+    config.owned_paths.push(OwnedPath {
+        path: PathBuf::from("/home/osso/.config/claude"),
+        owner: "claude".to_string(),
+        allowed_subjects: Vec::new(),
+        deny_non_owner: true,
+    });
+    let policy = Policy::new(config);
+
+    let decision = policy.decide(
+        &subject("fd"),
+        "/home/osso/.config/claude/.gitignore.lock",
+        AccessKind::Read,
+    );
+
+    assert_eq!(decision, Decision::Deny);
+}
+
+#[test]
 fn claude_versioned_binary_requires_explicit_prefix_allow() {
     let mut config = PolicyConfig::default();
     config.owned_paths.push(OwnedPath {

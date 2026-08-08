@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -91,6 +92,10 @@ impl Policy {
         access: AccessKind,
     ) -> Decision {
         let target_path = target_path.as_ref();
+        if target_path.file_name() == Some(OsStr::new(".gitignore")) {
+            return Decision::Allow;
+        }
+
         let subject_name = subject_name(subject);
 
         let owner = self.owner_for(target_path);

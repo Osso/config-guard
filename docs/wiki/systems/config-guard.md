@@ -14,6 +14,8 @@ The service's `--path` arguments define fanotify observation roots. They are int
 
 Ownership protection comes only from explicit `owned_paths` entries (and access sharing from explicit `shared_paths` entries). A generic descendant under a monitored root such as `/etc`, `/var/lib`, `/var/log`, `$HOME/.local/share`, or `$HOME/.local/state` is unowned when no explicit policy rule matches it, so ordinary access is allowed by the ownership policy. Other rules, such as sensitive-path or dev-tool rules, can still produce a prompt. The policy allows `syncthing-cli` as a subject for both `$HOME/.config/syncthing-cli` and `$HOME/.config/syncthing`.
 
+As a policy precedence exception, any access kind to a path whose final component is exactly `.gitignore` is allowed before ownership, non-owner denial, shared-path, sensitive-path, or prompt evaluation. Names such as `.gitignore.lock` do not match this exception and remain governed normally.
+
 A temporary tracked-credential exception allows subject `git` to read only `$HOME/.config/gc` and `$HOME/.config/gmail-cli`, because those credential files are intentionally tracked in the Provisioning repository. This exception does not allow Git helpers or broader sensitive-configuration access. Retire it when tracked credential storage is replaced by a workflow that does not require Git to open these files.
 
 `/etc/NetworkManager/dispatcher.d` and its descendants are an explicit all-subject, all-access shared subtree, so they are unprotected by policy. The parent `/etc/NetworkManager` and sibling subtrees remain governed by their existing ownership rules.

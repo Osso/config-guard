@@ -6,6 +6,7 @@ Config Guard is an interactive policy monitor for sensitive configuration file a
 
 Policy decisions:
 
+- [x] Allow every access kind when the target path's final component is exactly `.gitignore`, before ownership, non-owner denial, shared-path, sensitive-path, or prompt rules; lookalike names such as `.gitignore.lock` remain governed normally.
 - [x] Allow same-owner access to owned paths without prompting.
 - [x] Require explicit executable or executable-prefix rules for versioned Claude binaries; matching the owner name alone must not implicitly allow them.
 - [x] Let explicit owner allow rules take precedence over sensitive-path dev-tool prompts.
@@ -151,7 +152,7 @@ CLI and deployment:
 
 ## Tests asserting this spec
 
-- `tests/policy.rs` - policy decisions, including strict non-owner denial precedence and TOML parsing.
+- `tests/policy.rs` - policy decisions, including exact `.gitignore` access precedence, strict non-owner denial precedence, and TOML parsing.
 - `tests/root_integration.rs` - privileged fanotify enforcement, including one-prompt reuse across scopes for one process generation, stale queued-prompt suppression after process exit, re-prompting for a new generation, strict non-owner denial without prompt fallback, and prompt-helper reads from watched unprotected files without deadlock.
 - `tests/process_identity.rs` - process identity parsing contract.
 - `tests/learning.rs` - audit learning root selection and alias mapping.
