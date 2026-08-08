@@ -101,22 +101,8 @@ pub fn prompt_for_policy_decision_with_authorization(
         return Ok(decision);
     }
 
-    let Decision::Prompt {
-        reason,
-        default,
-        scope: _,
-    } = decision
-    else {
-        unreachable!("non-prompt decisions resolve immediately")
-    };
-    let request = build_prompt_request(
-        subject,
-        target_path,
-        reason,
-        *default,
-        env,
-        authorization.as_ref(),
-    );
+    let request =
+        build_policy_prompt_request(subject, target_path, &decision, env, authorization.as_ref());
 
     match ask_prompt(prompt, &request) {
         PromptOutcome::Answer { decision, explicit } => {
@@ -154,6 +140,32 @@ pub(super) fn immediate_prompt_decision(
     }
 
     None
+}
+
+fn build_policy_prompt_request<'a>(
+    subject: &'a ProcessSubject,
+    target_path: &'a Path,
+    decision: &Decision,
+    env: HashMap<String, String>,
+    authorization: Option<&'a AncestryAuthorization>,
+) -> PromptRequest<'a> {
+    let Decision::Prompt {
+        reason,
+        default,
+        scope: _,
+    } = decision
+    else {
+        unreachable!("non-prompt decisions resolve immediately")
+    };
+
+    build_prompt_request(
+        subject,
+        target_path,
+        *reason,
+        default.as_ref().clone(),
+        env,
+        authorization,
+    )
 }
 
 fn build_prompt_request<'a>(
