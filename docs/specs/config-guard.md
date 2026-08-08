@@ -109,7 +109,7 @@ Local policy file:
 - [x] Prompt dev tools that read sensitive configured paths.
 - [x] Allow Claude-spawned shell helpers for configured Claude paths when the Claude ancestor rule matches.
 - [x] Allow Claude-spawned snapshot helpers covered by the local policy.
-- [ ] Keep every durable allow rule tied to an owner, shared resource, or repeatable workflow observed across more than one ad hoc copy command.
+- [x] Allow the repeatable Noctalia Niri include workflow to use `cp` and `sed` for read/write access to `$HOME/.config/niri/noctalia.kdl` and `grep` for read access to `$HOME/.config/niri/config.kdl`; keep other durable allow rules tied to an owner, shared resource, or repeatable workflow rather than ad hoc copy commands.
 
 CLI and deployment:
 
@@ -157,7 +157,7 @@ CLI and deployment:
 - `tests/process_identity.rs` - process identity parsing contract.
 - `tests/learning.rs` - audit learning root selection and alias mapping.
 - `tests/reconcile.rs` - reconcile planning and apply behavior.
-- `tests/config_file.rs` - local `config/osso.toml` policy expectations, including ancestry-scoped `sqlite3` and `systemd-executor` access to Firefox backup data.
+- `tests/config_file.rs` - local `config/osso.toml` policy expectations, including Noctalia Niri helper scope and ancestry-scoped `sqlite3` and `systemd-executor` access to Firefox backup data.
 - `tests/deployment.rs` - static audit-mode unit and deploy activation-script contract.
 - `src/fanotify.rs` unit tests - mode masks, merged close classification, overflow handling, scope filtering, unknown-subject evaluation, directory walking, and excluded-tree behavior.
 - `src/fanotify/audit_identity.rs` unit tests - queued identities, bounded eviction, PID-generation replacement, take-on-close, and failed-open invalidation.
