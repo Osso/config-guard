@@ -5,9 +5,9 @@ use super::audit::{access_kinds as audit_access_kinds, decide_event as decide_au
 #[cfg(coverage)]
 use super::{Mode, run};
 use super::{
-    PromptDecisionCache, access_kind, audit_watch_mask, child_directories, ensure_event_descriptor,
-    ensure_path_exists, format_guard_decision, guard_watch_mask, has_graphical_session,
-    is_permission_event, is_watched_path, prompt_for_policy_decision,
+    PolicyPromptRequest, PromptDecisionCache, access_kind, audit_watch_mask, child_directories,
+    ensure_event_descriptor, ensure_path_exists, format_guard_decision, guard_watch_mask,
+    has_graphical_session, is_permission_event, is_watched_path, prompt_for_policy_decision,
     prompt_for_policy_decision_with_authorization, response_code,
 };
 use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject};
@@ -208,11 +208,13 @@ fn resolve_owned_ancestor_prompt(
         prompt,
         cache,
         super::PromptDecisionKey::new(process, access, &policy_decision),
-        authorization,
-        &subject,
-        Path::new(target_path),
-        graphical_env(),
-        policy_decision,
+        PolicyPromptRequest {
+            authorization,
+            subject: &subject,
+            target_path: Path::new(target_path),
+            env: graphical_env(),
+            decision: policy_decision,
+        },
     )
     .expect("resolve ancestry-qualified decision")
 }

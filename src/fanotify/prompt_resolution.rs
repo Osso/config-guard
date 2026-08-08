@@ -20,6 +20,14 @@ pub struct PromptDecisionKey {
     reason: DecisionReason,
 }
 
+pub struct PolicyPromptRequest<'a> {
+    pub authorization: Option<AncestryAuthorization>,
+    pub subject: &'a ProcessSubject,
+    pub target_path: &'a Path,
+    pub env: HashMap<String, String>,
+    pub decision: Decision,
+}
+
 impl PromptDecisionCache {
     fn get(&self, key: &PromptDecisionKey) -> Option<Decision> {
         self.decisions.get(key).cloned()
@@ -59,11 +67,13 @@ pub fn prompt_for_policy_decision(
         prompt,
         prompt_cache,
         prompt_key,
-        None,
-        subject,
-        target_path,
-        env,
-        decision,
+        PolicyPromptRequest {
+            authorization: None,
+            subject,
+            target_path,
+            env,
+            decision,
+        },
     )
 }
 
@@ -71,12 +81,15 @@ pub fn prompt_for_policy_decision_with_authorization(
     prompt: &dyn Prompt,
     prompt_cache: &mut PromptDecisionCache,
     prompt_key: Option<PromptDecisionKey>,
-    authorization: Option<AncestryAuthorization>,
-    subject: &ProcessSubject,
-    target_path: &Path,
-    env: HashMap<String, String>,
-    decision: Decision,
+    request: PolicyPromptRequest<'_>,
 ) -> Result<Decision> {
+    let PolicyPromptRequest {
+        authorization,
+        subject,
+        target_path,
+        env,
+        decision,
+    } = request;
     if let Some(decision) = immediate_prompt_decision(
         prompt,
         prompt_cache,

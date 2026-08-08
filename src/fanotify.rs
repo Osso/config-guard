@@ -49,7 +49,9 @@ pub struct PromptDecisionCache;
 #[cfg(test)]
 pub(super) use prompt_resolution::has_graphical_session;
 #[cfg(test)]
-pub(super) use prompt_resolution::prompt_for_policy_decision_with_authorization;
+pub(super) use prompt_resolution::{
+    PolicyPromptRequest, prompt_for_policy_decision_with_authorization,
+};
 #[cfg(any(test, not(coverage)))]
 pub(super) use prompt_resolution::{PromptDecisionKey, prompt_for_policy_decision};
 #[cfg(not(coverage))]
