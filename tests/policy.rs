@@ -68,7 +68,7 @@ fn gitignore_access_is_always_allowed() {
 }
 
 #[test]
-fn gitignore_exception_requires_exact_file_name() {
+fn gitignore_exception_requires_exact_final_component() {
     let mut config = PolicyConfig::default();
     config.owned_paths.push(OwnedPath {
         path: PathBuf::from("/home/osso/.config/claude"),
@@ -78,13 +78,17 @@ fn gitignore_exception_requires_exact_file_name() {
     });
     let policy = Policy::new(config);
 
-    let decision = policy.decide(
-        &subject("fd"),
+    for target_path in [
         "/home/osso/.config/claude/.gitignore.lock",
-        AccessKind::Read,
-    );
+        "/home/osso/.config/claude/.ignore",
+        "/home/osso/.config/claude/.rgignore",
+        "/home/osso/.config/claude/.env",
+        "/home/osso/.config/claude/.gitignore/contents",
+    ] {
+        let decision = policy.decide(&subject("fd"), target_path, AccessKind::Read);
 
-    assert_eq!(decision, Decision::Deny);
+        assert_eq!(decision, Decision::Deny, "{target_path}");
+    }
 }
 
 #[test]
