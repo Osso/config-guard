@@ -47,9 +47,9 @@ Run `./deploy.sh` from the repository root for audit mode, or `./deploy.sh --mod
 
 1. Validates the selected mode before building or changing host state.
 2. Builds and installs the release binary to `~/.cargo/bin/config-guard`.
-3. Requires `HOME=/home/osso` and installs `config/osso.toml` to `/home/osso/.config/config-guard/config.toml` with mode `0600`, matching the systemd unit exactly.
-4. Uses one pooled `authsudo` invocation to install the audit or guard unit under `/etc/systemd/system/config-guard.service`, reload systemd, enable it at boot, and restart it. The guard unit wants `secrets-broker.service`; the audit unit has no such dependency. Both scopes explicitly include `~/.ssh` and `~/.kube`; monitoring scope remains distinct from policy ownership, with `~/.kube` owned by `kubectl` and `flux` listed as an explicit allowed subject.
-5. Keeps build, user configuration install, and post-restart health checks unprivileged.
+3. Requires `HOME=/home/osso`, then uses one pooled `authsudo` invocation for the protected installation phase. That phase stops the existing service, installs `config/osso.toml` to `/home/osso/.config/config-guard/config.toml` as `osso:osso` with mode `0600`, and restores service availability if a later installation step fails. Stopping first prevents the enforcing daemon from blocking replacement of its own policy.
+4. The same privileged phase installs the audit or guard unit under `/etc/systemd/system/config-guard.service`, reloads systemd, enables it at boot, and restarts it in the selected mode. The guard unit wants `secrets-broker.service`; the audit unit has no such dependency. Both scopes explicitly include `~/.ssh` and `~/.kube`; monitoring scope remains distinct from policy ownership, with `~/.kube` owned by `kubectl` and `flux` listed as an explicit allowed subject.
+5. Keeps the build and post-restart health checks unprivileged.
 6. Relies on `Type=notify`: `systemctl restart` does not complete until the daemon sends `READY=1`, which happens only after all monitoring marks are installed. Guard's `ExecStartPost` creates `/run/config-guard/enforcing` only after that readiness point; audit has no marker step.
 7. Waits six additional seconds, then verifies boot enablement, active state, `Type=notify`, the selected-mode `ExecStart`, a nonzero main PID, zero restarts, and marker presence in guard mode or absence in audit mode.
 

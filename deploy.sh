@@ -29,6 +29,12 @@ service_source_for_mode() {
     esac
 }
 
+restore_service_after_failed_install() {
+    local status="$?"
+    systemctl start config-guard.service >/dev/null 2>&1 || true
+    exit "${status}"
+}
+
 install_system_service() {
     local selected_mode="$1"
     local service_source
@@ -39,10 +45,14 @@ install_system_service() {
         exit 1
     fi
 
+    trap restore_service_after_failed_install ERR
+    systemctl stop config-guard.service 2>/dev/null || true
+    install -Dm600 -o osso -g osso "${project_dir}/config/osso.toml" "${config_target}"
     install -Dm644 "${service_source}" "${service_target}"
     systemctl daemon-reload
     systemctl enable config-guard.service
     systemctl restart config-guard.service
+    trap - ERR
 }
 
 if [[ "${1:-}" == "--install-system" ]]; then
@@ -121,7 +131,6 @@ cd "${project_dir}"
 
 cargo install --force --path . --root "${HOME}/.cargo"
 
-install -Dm600 "config/osso.toml" "${config_target}"
 authsudo "${project_dir}/deploy.sh" --install-system "${mode}"
 
 verify_service "${mode}"

@@ -66,7 +66,11 @@ fn deploy_defines_explicit_mode_activation_contract() {
     assert!(deploy.contains("config/config-guard.service"));
     assert!(deploy.contains("config/config-guard-guard.service"));
     assert!(deploy.contains("cargo install --force --path . --root \"${HOME}/.cargo\""));
-    assert!(deploy.contains("install -Dm600 \"config/osso.toml\""));
+    assert!(!deploy.contains("install -Dm600 \"config/osso.toml\" \"${config_target}\""));
+    assert!(deploy.contains("systemctl stop config-guard.service"));
+    assert!(deploy.contains(
+        "install -Dm600 -o osso -g osso \"${project_dir}/config/osso.toml\" \"${config_target}\""
+    ));
     assert_eq!(deploy.matches("authsudo ").count(), 1);
     assert!(deploy.contains("authsudo \"${project_dir}/deploy.sh\" --install-system \"${mode}\""));
     assert!(!deploy.contains("authsudo \"$0\""));
@@ -74,6 +78,15 @@ fn deploy_defines_explicit_mode_activation_contract() {
     assert!(deploy.contains("systemctl daemon-reload"));
     assert!(deploy.contains("systemctl enable config-guard.service"));
     assert!(deploy.contains("systemctl restart config-guard.service"));
+    let stop = deploy.find("systemctl stop config-guard.service").unwrap();
+    let config_install = deploy.find("install -Dm600 -o osso -g osso").unwrap();
+    let service_install = deploy
+        .find("install -Dm644 \"${service_source}\" \"${service_target}\"")
+        .unwrap();
+    let restart = deploy
+        .find("systemctl restart config-guard.service")
+        .unwrap();
+    assert!(stop < config_install && config_install < service_install && service_install < restart);
     assert!(deploy.contains("systemctl is-enabled --quiet config-guard.service"));
     assert!(deploy.contains("sleep 6"));
     assert!(deploy.contains("systemctl is-active --quiet config-guard.service"));

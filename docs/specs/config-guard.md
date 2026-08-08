@@ -114,7 +114,7 @@ CLI and deployment:
 - [x] Require at least one `--path` for `audit`, `audit-prompt`, and `guard`.
 - [x] Support `--exclude-path` for watched trees.
 - [x] Support a configurable policy path through `--config`, falling back to the default user config path when present.
-- [x] Deploy the release binary, local policy config, and selected audit or guard systemd service through `deploy.sh`.
+- [x] Deploy the release binary, local policy config, and selected audit or guard systemd service through `deploy.sh`; stop the enforcing service before replacing its protected policy, restore service availability if privileged installation fails, then restart into the selected mode.
 
 ## How it works
 
