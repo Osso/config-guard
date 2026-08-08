@@ -48,6 +48,8 @@ pub use prompt_resolution::PromptDecisionCache;
 pub struct PromptDecisionCache;
 #[cfg(test)]
 pub(super) use prompt_resolution::has_graphical_session;
+#[cfg(test)]
+pub(super) use prompt_resolution::prompt_for_policy_decision_with_authorization;
 #[cfg(any(test, not(coverage)))]
 pub(super) use prompt_resolution::{PromptDecisionKey, prompt_for_policy_decision};
 #[cfg(not(coverage))]
@@ -95,6 +97,10 @@ pub trait AccessPolicy {
         target_path: &Path,
         access: AccessKind,
     ) -> Result<Decision>;
+
+    fn owner_subject(&self, _target_path: &Path) -> Option<String> {
+        None
+    }
 }
 
 #[cfg(not(coverage))]

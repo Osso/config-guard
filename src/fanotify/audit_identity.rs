@@ -136,6 +136,7 @@ mod tests {
             cwd: None,
             start_time_ticks: Some(pid as u64),
             ancestors: Vec::new(),
+            ancestor_processes: Vec::new(),
         }
     }
 

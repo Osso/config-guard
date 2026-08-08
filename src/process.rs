@@ -17,6 +17,13 @@ const WAYLAND_ENV_KEYS: &[&str] = &[
     "DBUS_SESSION_BUS_ADDRESS",
 ];
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ProcessAncestor {
+    pub pid: i32,
+    pub executable: PathBuf,
+    pub start_time_ticks: Option<u64>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProcessIdentity {
     pub pid: i32,
@@ -25,6 +32,7 @@ pub struct ProcessIdentity {
     pub cwd: Option<PathBuf>,
     pub start_time_ticks: Option<u64>,
     pub ancestors: Vec<PathBuf>,
+    pub ancestor_processes: Vec<ProcessAncestor>,
 }
 
 impl ProcessIdentity {
@@ -36,6 +44,7 @@ impl ProcessIdentity {
             cwd: None,
             start_time_ticks: None,
             ancestors: Vec::new(),
+            ancestor_processes: Vec::new(),
         }
     }
 
@@ -47,6 +56,7 @@ impl ProcessIdentity {
             cwd: None,
             start_time_ticks: None,
             ancestors: Vec::new(),
+            ancestor_processes: Vec::new(),
         }
     }
 
@@ -90,7 +100,11 @@ fn inspect_process_from_procfs(pid: i32) -> Result<ProcessIdentity> {
     let cwd = fs::read_link(proc_dir.join("cwd")).ok();
     let command = read_command(&proc_dir)?;
     let start_time_ticks = read_start_time_ticks(proc_dir.join("stat"))?;
-    let ancestors = read_ancestor_executables(pid);
+    let ancestor_processes = read_ancestor_processes(pid);
+    let ancestors = ancestor_processes
+        .iter()
+        .map(|ancestor| ancestor.executable.clone())
+        .collect();
 
     Ok(ProcessIdentity {
         pid,
@@ -99,6 +113,7 @@ fn inspect_process_from_procfs(pid: i32) -> Result<ProcessIdentity> {
         cwd,
         start_time_ticks,
         ancestors,
+        ancestor_processes,
     })
 }
 
@@ -246,16 +261,19 @@ fn read_start_time_ticks(path: PathBuf) -> Result<Option<u64>> {
 }
 
 #[cfg(not(coverage))]
-fn read_ancestor_executables(pid: i32) -> Vec<PathBuf> {
+fn read_ancestor_processes(pid: i32) -> Vec<ProcessAncestor> {
     let mut ancestors = Vec::new();
     let mut current_pid = pid;
-
-    for _ in 0..32 {
+    let mut current_stat = {
         let proc_dir = PathBuf::from("/proc").join(current_pid.to_string());
         let Ok(stat) = fs::read_to_string(proc_dir.join("stat")) else {
-            break;
+            return ancestors;
         };
-        let Ok(parent_pid) = parse_parent_pid(&stat) else {
+        stat
+    };
+
+    for _ in 0..32 {
+        let Ok(parent_pid) = parse_parent_pid(&current_stat) else {
             break;
         };
         if parent_pid <= 1 || parent_pid == current_pid {
@@ -263,10 +281,23 @@ fn read_ancestor_executables(pid: i32) -> Vec<PathBuf> {
         }
 
         let parent_proc_dir = PathBuf::from("/proc").join(parent_pid.to_string());
+        let parent_stat = fs::read_to_string(parent_proc_dir.join("stat")).ok();
         if let Some(executable) = read_exe_link(&parent_proc_dir.join("exe")) {
-            ancestors.push(executable);
+            let start_time_ticks = parent_stat
+                .as_deref()
+                .and_then(|stat| parse_start_time_ticks(stat).ok());
+            ancestors.push(ProcessAncestor {
+                pid: parent_pid,
+                executable,
+                start_time_ticks,
+            });
         }
+
         current_pid = parent_pid;
+        let Some(stat) = parent_stat else {
+            break;
+        };
+        current_stat = stat;
     }
 
     ancestors
@@ -337,6 +368,7 @@ mod tests {
             PathBuf::from("/usr/bin/head")
         );
         assert_eq!(identity.command, vec!["/usr/bin/head".to_string()]);
+        assert!(identity.ancestor_processes.is_empty());
     }
 
     #[test]
@@ -347,6 +379,7 @@ mod tests {
         assert_eq!(identity.subject().executable, PathBuf::from("unknown"));
         assert!(identity.command.is_empty());
         assert!(identity.ancestors.is_empty());
+        assert!(identity.ancestor_processes.is_empty());
     }
 
     #[cfg(coverage)]

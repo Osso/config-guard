@@ -129,6 +129,11 @@ impl Policy {
         }
     }
 
+    pub fn owner_subject(&self, target_path: impl AsRef<Path>) -> Option<&str> {
+        self.owner_for(target_path.as_ref())
+            .map(|owner| owner.owner.as_str())
+    }
+
     fn owner_for(&self, target_path: &Path) -> Option<&OwnedPath> {
         self.config
             .owned_paths

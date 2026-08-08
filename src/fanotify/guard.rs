@@ -1,5 +1,5 @@
 use super::prompt_resolution::{
-    PromptOutcome, ask_prompt, cache_prompt_decision, immediate_prompt_decision,
+    PromptOutcome, ask_prompt, cache_prompt_answer, immediate_prompt_decision,
 };
 use super::{
     AccessPolicy, PromptDecisionCache, PromptDecisionKey, access_kind, ensure_event_descriptor,
@@ -8,7 +8,7 @@ use super::{
 };
 use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject};
 use crate::process::read_wayland_env;
-use crate::prompt::{Prompt, PromptRequest};
+use crate::prompt::{AncestryAuthorization, Prompt, PromptRequest};
 use anyhow::{Context, Result, anyhow};
 use libc::{POLLERR, POLLHUP, POLLIN, POLLNVAL, fanotify_event_metadata, poll, pollfd};
 use std::collections::HashMap;
@@ -27,6 +27,7 @@ type PromptId = u64;
 struct PromptJob {
     id: PromptId,
     key: Option<PromptDecisionKey>,
+    authorization: Option<AncestryAuthorization>,
     subject: ProcessSubject,
     target_path: PathBuf,
     reason: DecisionReason,
@@ -47,11 +48,13 @@ struct PendingEvent {
 
 struct PendingPrompt {
     key: Option<PromptDecisionKey>,
+    authorization: Option<AncestryAuthorization>,
     events: Vec<PendingEvent>,
 }
 
 struct PromptSpec {
     key: Option<PromptDecisionKey>,
+    authorization: Option<AncestryAuthorization>,
     subject: ProcessSubject,
     target_path: PathBuf,
     reason: DecisionReason,
@@ -67,6 +70,7 @@ enum GuardAction {
 struct GuardEvaluation {
     subject: ProcessSubject,
     prompt_key: Option<PromptDecisionKey>,
+    authorization: Option<AncestryAuthorization>,
     policy_decision: Decision,
 }
 
@@ -158,10 +162,18 @@ impl PromptCoordinator {
         &mut self,
         prompt: &dyn Prompt,
         prompt_key: Option<&PromptDecisionKey>,
+        authorization: Option<&AncestryAuthorization>,
         env: &HashMap<String, String>,
         decision: &Decision,
     ) -> Option<Decision> {
-        immediate_prompt_decision(prompt, &mut self.prompt_cache, prompt_key, env, decision)
+        immediate_prompt_decision(
+            prompt,
+            &mut self.prompt_cache,
+            prompt_key,
+            authorization,
+            env,
+            decision,
+        )
     }
 
     fn queue_prompt(
@@ -217,6 +229,7 @@ impl PromptCoordinator {
         let job = PromptJob {
             id,
             key: spec.key.clone(),
+            authorization: spec.authorization.clone(),
             subject: spec.subject,
             target_path: spec.target_path,
             reason: spec.reason,
@@ -224,7 +237,13 @@ impl PromptCoordinator {
             env: spec.env,
         };
 
-        self.send_prompt_job(fanotify_fd, pending_event, job, spec.key)
+        self.send_prompt_job(
+            fanotify_fd,
+            pending_event,
+            job,
+            spec.key,
+            spec.authorization,
+        )
     }
 
     fn send_prompt_job(
@@ -233,6 +252,7 @@ impl PromptCoordinator {
         pending_event: PendingEvent,
         job: PromptJob,
         key: Option<PromptDecisionKey>,
+        authorization: Option<AncestryAuthorization>,
     ) -> Result<()> {
         let id = job.id;
         if let Err(error) = self.job_sender.send(job) {
@@ -252,6 +272,7 @@ impl PromptCoordinator {
             id,
             PendingPrompt {
                 key,
+                authorization,
                 events: vec![pending_event],
             },
         );
@@ -309,8 +330,14 @@ impl PromptCoordinator {
         self.remove_pending_key(completion.id, pending.key.as_ref())?;
 
         match completion.outcome {
-            PromptOutcome::Answer(decision) => {
-                cache_prompt_decision(&mut self.prompt_cache, pending.key, &decision);
+            PromptOutcome::Answer { decision, explicit } => {
+                cache_prompt_answer(
+                    &mut self.prompt_cache,
+                    pending.key,
+                    pending.authorization,
+                    &decision,
+                    explicit,
+                );
                 respond_with_decision(fanotify_fd, pending.events, decision)
             }
             PromptOutcome::Failure => respond_with_defaults(fanotify_fd, pending.events),
@@ -476,6 +503,9 @@ fn evaluate_guard_access(
     let subject = process.subject();
     let policy_decision = policy.decide(&subject, target_path, access)?;
     let prompt_key = PromptDecisionKey::new(&process, access, &policy_decision);
+    let authorization = policy
+        .owner_subject(target_path)
+        .and_then(|owner| AncestryAuthorization::new(&process, &owner, &policy_decision));
     log_guard_decision(
         metadata.pid,
         &subject.executable,
@@ -487,6 +517,7 @@ fn evaluate_guard_access(
     Ok(GuardEvaluation {
         subject,
         prompt_key,
+        authorization,
         policy_decision,
     })
 }
@@ -498,18 +529,31 @@ fn resolve_guard_action(
     prompt: &dyn Prompt,
     coordinator: &mut PromptCoordinator,
 ) -> GuardAction {
-    let GuardEvaluation {
-        subject,
-        prompt_key,
-        policy_decision,
-    } = evaluation;
     let env = read_wayland_env(pid);
-    if let Some(decision) =
-        coordinator.immediate_decision(prompt, prompt_key.as_ref(), &env, &policy_decision)
-    {
+    if let Some(decision) = coordinator.immediate_decision(
+        prompt,
+        evaluation.prompt_key.as_ref(),
+        evaluation.authorization.as_ref(),
+        &env,
+        &evaluation.policy_decision,
+    ) {
         return GuardAction::Respond(decision);
     }
 
+    GuardAction::Prompt(Box::new(prompt_spec(target_path, evaluation, env)))
+}
+
+fn prompt_spec(
+    target_path: PathBuf,
+    evaluation: GuardEvaluation,
+    env: HashMap<String, String>,
+) -> PromptSpec {
+    let GuardEvaluation {
+        subject,
+        prompt_key,
+        authorization,
+        policy_decision,
+    } = evaluation;
     let Decision::Prompt {
         reason,
         default,
@@ -519,14 +563,15 @@ fn resolve_guard_action(
         unreachable!("non-prompt guard decisions resolve immediately")
     };
 
-    GuardAction::Prompt(Box::new(PromptSpec {
+    PromptSpec {
         key: prompt_key,
+        authorization,
         subject,
         target_path,
         reason,
         default_decision: *default,
         env,
-    }))
+    }
 }
 
 fn log_guard_decision(
@@ -567,11 +612,15 @@ fn run_prompt_worker(
 }
 
 fn resolve_prompt_job(prompt: &dyn Prompt, job: &PromptJob) -> PromptOutcome {
-    if job
+    let helper_is_stale = job
         .key
         .as_ref()
-        .is_some_and(|key| !key.is_current_process())
-    {
+        .is_some_and(|key| !key.is_current_process());
+    let owner_is_stale = job
+        .authorization
+        .as_ref()
+        .is_some_and(|authorization| !authorization.owner_is_current());
+    if helper_is_stale || owner_is_stale {
         return PromptOutcome::Failure;
     }
 
@@ -581,6 +630,7 @@ fn resolve_prompt_job(prompt: &dyn Prompt, job: &PromptJob) -> PromptOutcome {
         reason: job.reason,
         default_decision: job.default_decision.clone(),
         env: job.env.clone(),
+        authorization: job.authorization.as_ref(),
     };
     ask_prompt(prompt, &request)
 }

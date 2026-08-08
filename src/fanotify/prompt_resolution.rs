@@ -1,13 +1,14 @@
 use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject};
 use crate::process::{ProcessIdentity, is_process_generation_current};
-use crate::prompt::{Prompt, PromptRequest};
+use crate::prompt::{AncestryAuthorization, Prompt, PromptRequest};
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Default)]
 pub struct PromptDecisionCache {
     decisions: HashMap<PromptDecisionKey, Decision>,
+    ancestry_authorizations: HashSet<AncestryAuthorization>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -29,6 +30,15 @@ impl PromptDecisionCache {
             self.decisions.insert(key, decision);
         }
     }
+
+    fn allows_authorization(&self, authorization: Option<&AncestryAuthorization>) -> bool {
+        authorization
+            .is_some_and(|authorization| self.ancestry_authorizations.contains(authorization))
+    }
+
+    fn insert_authorization(&mut self, authorization: AncestryAuthorization) {
+        self.ancestry_authorizations.insert(authorization);
+    }
 }
 
 pub fn has_graphical_session(env: &HashMap<String, String>) -> bool {
@@ -45,9 +55,36 @@ pub fn prompt_for_policy_decision(
     env: HashMap<String, String>,
     decision: Decision,
 ) -> Result<Decision> {
-    if let Some(decision) =
-        immediate_prompt_decision(prompt, prompt_cache, prompt_key.as_ref(), &env, &decision)
-    {
+    prompt_for_policy_decision_with_authorization(
+        prompt,
+        prompt_cache,
+        prompt_key,
+        None,
+        subject,
+        target_path,
+        env,
+        decision,
+    )
+}
+
+pub fn prompt_for_policy_decision_with_authorization(
+    prompt: &dyn Prompt,
+    prompt_cache: &mut PromptDecisionCache,
+    prompt_key: Option<PromptDecisionKey>,
+    authorization: Option<AncestryAuthorization>,
+    subject: &ProcessSubject,
+    target_path: &Path,
+    env: HashMap<String, String>,
+    decision: Decision,
+) -> Result<Decision> {
+    if let Some(decision) = immediate_prompt_decision(
+        prompt,
+        prompt_cache,
+        prompt_key.as_ref(),
+        authorization.as_ref(),
+        &env,
+        &decision,
+    ) {
         return Ok(decision);
     }
 
@@ -59,11 +96,18 @@ pub fn prompt_for_policy_decision(
     else {
         unreachable!("non-prompt decisions resolve immediately")
     };
-    let request = build_prompt_request(subject, target_path, reason, *default, env);
+    let request = build_prompt_request(
+        subject,
+        target_path,
+        reason,
+        *default,
+        env,
+        authorization.as_ref(),
+    );
 
     match ask_prompt(prompt, &request) {
-        PromptOutcome::Answer(decision) => {
-            cache_prompt_decision(prompt_cache, prompt_key, &decision);
+        PromptOutcome::Answer { decision, explicit } => {
+            cache_prompt_answer(prompt_cache, prompt_key, authorization, &decision, explicit);
             Ok(decision)
         }
         PromptOutcome::Failure => Ok(request.default_decision),
@@ -74,12 +118,17 @@ pub(super) fn immediate_prompt_decision(
     prompt: &dyn Prompt,
     prompt_cache: &mut PromptDecisionCache,
     prompt_key: Option<&PromptDecisionKey>,
+    authorization: Option<&AncestryAuthorization>,
     env: &HashMap<String, String>,
     decision: &Decision,
 ) -> Option<Decision> {
     let Decision::Prompt { default, .. } = decision else {
         return Some(decision.clone());
     };
+
+    if prompt_cache.allows_authorization(authorization) {
+        return Some(Decision::Allow);
+    }
 
     if let Some(decision) = cached_prompt_decision(prompt_cache, prompt_key) {
         return Some(decision);
@@ -100,6 +149,7 @@ fn build_prompt_request<'a>(
     reason: DecisionReason,
     default_decision: Decision,
     env: HashMap<String, String>,
+    authorization: Option<&'a AncestryAuthorization>,
 ) -> PromptRequest<'a> {
     PromptRequest {
         subject,
@@ -107,17 +157,21 @@ fn build_prompt_request<'a>(
         reason,
         default_decision,
         env,
+        authorization,
     }
 }
 
 pub(super) enum PromptOutcome {
-    Answer(Decision),
+    Answer { decision: Decision, explicit: bool },
     Failure,
 }
 
 pub(super) fn ask_prompt(prompt: &dyn Prompt, request: &PromptRequest<'_>) -> PromptOutcome {
-    match prompt.ask(request) {
-        Ok(decision) => PromptOutcome::Answer(decision),
+    match prompt.ask_answer(request) {
+        Ok(answer) => PromptOutcome::Answer {
+            explicit: answer.is_explicit(),
+            decision: answer.into_decision(),
+        },
         Err(error) => {
             prompt_failure_decision(
                 request.subject,
@@ -138,7 +192,23 @@ fn cached_prompt_decision(
     prompt_key.and_then(|key| prompt_cache.get(key))
 }
 
-pub(super) fn cache_prompt_decision(
+pub(super) fn cache_prompt_answer(
+    prompt_cache: &mut PromptDecisionCache,
+    prompt_key: Option<PromptDecisionKey>,
+    authorization: Option<AncestryAuthorization>,
+    decision: &Decision,
+    explicit: bool,
+) {
+    cache_prompt_decision(prompt_cache, prompt_key, decision);
+    if explicit
+        && matches!(decision, Decision::Allow)
+        && let Some(authorization) = authorization
+    {
+        prompt_cache.insert_authorization(authorization);
+    }
+}
+
+fn cache_prompt_decision(
     prompt_cache: &mut PromptDecisionCache,
     prompt_key: Option<PromptDecisionKey>,
     decision: &Decision,

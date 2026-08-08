@@ -1,6 +1,8 @@
 use config_guard::process::{
-    ProcessIdentity, parse_cmdline, parse_comm, parse_parent_pid, parse_start_time_ticks,
+    ProcessIdentity, inspect_process, parse_cmdline, parse_comm, parse_parent_pid,
+    parse_start_time_ticks,
 };
+use std::fs;
 use std::path::PathBuf;
 
 #[test]
@@ -69,6 +71,7 @@ fn uses_argv0_as_subject_when_exe_link_is_missing() {
         cwd: None,
         start_time_ticks: Some(42),
         ancestors: Vec::new(),
+        ancestor_processes: Vec::new(),
     };
 
     let subject = process.subject();
@@ -85,6 +88,7 @@ fn uses_executable_link_before_argv0_for_subject() {
         cwd: None,
         start_time_ticks: Some(42),
         ancestors: Vec::new(),
+        ancestor_processes: Vec::new(),
     };
 
     let subject = process.subject();
@@ -101,6 +105,7 @@ fn uses_unknown_subject_when_exe_and_command_are_missing() {
         cwd: None,
         start_time_ticks: None,
         ancestors: Vec::new(),
+        ancestor_processes: Vec::new(),
     };
 
     let subject = process.subject();
@@ -115,4 +120,33 @@ fn rejects_proc_stat_with_bad_numeric_fields() {
 
     assert!(parse_start_time_ticks(bad_start).is_err());
     assert!(parse_parent_pid(bad_parent).is_err());
+}
+
+#[cfg(not(coverage))]
+#[test]
+fn inspects_ordered_ancestor_processes_and_preserves_subject_paths() {
+    let pid = std::process::id() as i32;
+    let stat_path = format!("/proc/{pid}/stat");
+    let stat = fs::read_to_string(stat_path).expect("current process stat should be readable");
+    let parent_pid = parse_parent_pid(&stat).expect("current parent pid should parse");
+    let identity = inspect_process(pid).expect("current process should be inspectable");
+
+    let first = identity
+        .ancestor_processes
+        .first()
+        .expect("current process should have a parent ancestor");
+    assert_eq!(first.pid, parent_pid);
+    assert!(first.start_time_ticks.is_some());
+    assert_eq!(
+        identity.ancestors,
+        identity
+            .ancestor_processes
+            .iter()
+            .map(|ancestor| ancestor.executable.clone())
+            .collect::<Vec<_>>()
+    );
+
+    for pair in identity.ancestor_processes.windows(2) {
+        assert_ne!(pair[0].pid, pair[1].pid);
+    }
 }

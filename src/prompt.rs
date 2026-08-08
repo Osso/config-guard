@@ -1,4 +1,5 @@
 use crate::policy::{Decision, DecisionReason, ProcessSubject};
+use crate::process::{ProcessAncestor, ProcessIdentity, is_process_generation_current};
 use anyhow::{Context, Result};
 use authd_protocol::{AuthRequest, AuthResponse, DaemonRequest, SOCKET_PATH};
 use std::collections::HashMap;
@@ -14,16 +15,88 @@ use std::time::Instant;
 
 const IPC_BUFFER_SIZE: usize = 64 * 1024;
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct AncestryAuthorization {
+    pub subject_executable: PathBuf,
+    pub owner_ancestor: ProcessAncestor,
+    pub scope: PathBuf,
+}
+
+impl AncestryAuthorization {
+    pub fn new(
+        process: &ProcessIdentity,
+        owner_subject: &str,
+        decision: &Decision,
+    ) -> Option<Self> {
+        let Decision::Prompt { reason, scope, .. } = decision else {
+            return None;
+        };
+        if !matches!(
+            reason,
+            DecisionReason::CrossOwnerRead | DecisionReason::CrossOwnerWrite
+        ) {
+            return None;
+        }
+
+        let subject_executable = process.executable.clone()?;
+        let owner_ancestor = process
+            .ancestor_processes
+            .iter()
+            .find(|ancestor| {
+                ancestor.start_time_ticks.is_some()
+                    && executable_name(&ancestor.executable) == owner_subject
+            })?
+            .clone();
+
+        Some(Self {
+            subject_executable,
+            owner_ancestor,
+            scope: scope.clone(),
+        })
+    }
+
+    pub fn owner_is_current(&self) -> bool {
+        self.owner_ancestor
+            .start_time_ticks
+            .is_some_and(|start_time_ticks| {
+                is_process_generation_current(self.owner_ancestor.pid, start_time_ticks)
+            })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PromptAnswer {
+    Explicit(Decision),
+    Default(Decision),
+}
+
+impl PromptAnswer {
+    pub fn into_decision(self) -> Decision {
+        match self {
+            Self::Explicit(decision) | Self::Default(decision) => decision,
+        }
+    }
+
+    pub fn is_explicit(&self) -> bool {
+        matches!(self, Self::Explicit(_))
+    }
+}
+
 pub struct PromptRequest<'a> {
     pub subject: &'a ProcessSubject,
     pub target_path: &'a Path,
     pub reason: DecisionReason,
     pub default_decision: Decision,
     pub env: HashMap<String, String>,
+    pub authorization: Option<&'a AncestryAuthorization>,
 }
 
 pub trait Prompt {
     fn ask(&self, request: &PromptRequest<'_>) -> Result<Decision>;
+
+    fn ask_answer(&self, request: &PromptRequest<'_>) -> Result<PromptAnswer> {
+        self.ask(request).map(PromptAnswer::Explicit)
+    }
 
     fn requires_graphical_session(&self) -> bool {
         true
@@ -46,6 +119,10 @@ impl Prompt for NonInteractivePrompt {
 
         Ok(request.default_decision.clone())
     }
+
+    fn ask_answer(&self, request: &PromptRequest<'_>) -> Result<PromptAnswer> {
+        self.ask(request).map(PromptAnswer::Default)
+    }
 }
 
 #[cfg(not(coverage))]
@@ -58,6 +135,14 @@ pub struct CommandPrompt {
 impl CommandPrompt {
     pub fn new(command: PathBuf, timeout: Duration) -> Self {
         Self { command, timeout }
+    }
+}
+
+#[cfg(not(coverage))]
+pub fn build(prompt_command: Option<PathBuf>, timeout: Duration) -> Box<dyn Prompt + Sync> {
+    match prompt_command {
+        Some(command) => Box::new(CommandPrompt::new(command, timeout)),
+        None => Box::new(AuthdPrompt::new(timeout)),
     }
 }
 
@@ -81,6 +166,10 @@ impl AuthdPrompt {
 
 impl Prompt for AuthdPrompt {
     fn ask(&self, request: &PromptRequest<'_>) -> Result<Decision> {
+        self.ask_answer(request).map(PromptAnswer::into_decision)
+    }
+
+    fn ask_answer(&self, request: &PromptRequest<'_>) -> Result<PromptAnswer> {
         let auth_request = AuthRequest {
             target: request.subject.executable.clone(),
             args: vec![
@@ -91,33 +180,30 @@ impl Prompt for AuthdPrompt {
             password: String::new(),
             confirm_only: true,
             prompt_title: Some("Config access request".to_string()),
-            prompt_message: Some(format!(
-                "Allow {} to access this config file?",
-                display_subject(request.subject)
-            )),
-            prompt_detail: Some(format!(
-                "{:?}\n{}",
-                request.reason,
-                request.target_path.display()
-            )),
+            prompt_message: Some(prompt_message(request)),
+            prompt_detail: Some(prompt_detail(request)),
         };
 
         // authd reads a `DaemonRequest` envelope off the socket; the legacy
         // confirm/exec flow is the `Exec` variant. Sending a bare `AuthRequest`
         // deserializes as a sequence and authd rejects it ("expected variant
         // identifier"), silently falling through to the default decision.
-        match call_authd(
+        let response = call_authd(
             &self.socket_path,
             &DaemonRequest::Exec(auth_request),
             self.timeout,
-        ) {
-            Ok(AuthResponse::Success { .. }) => Ok(Decision::Allow),
-            Ok(AuthResponse::Denied { .. }) => Ok(Decision::Deny),
-            Ok(AuthResponse::AuthFailed) => Ok(Decision::Deny),
-            Ok(AuthResponse::UnknownTarget | AuthResponse::Error { .. }) | Err(_) => {
-                Ok(request.default_decision.clone())
+        );
+        let answer = match response {
+            Ok(AuthResponse::Success { .. }) => PromptAnswer::Explicit(Decision::Allow),
+            Ok(AuthResponse::Denied { .. } | AuthResponse::AuthFailed) => {
+                PromptAnswer::Explicit(Decision::Deny)
             }
-        }
+            Ok(AuthResponse::UnknownTarget | AuthResponse::Error { .. }) | Err(_) => {
+                PromptAnswer::Default(request.default_decision.clone())
+            }
+        };
+
+        Ok(answer)
     }
 }
 
@@ -152,6 +238,10 @@ fn call_authd(
 #[cfg(not(coverage))]
 impl Prompt for CommandPrompt {
     fn ask(&self, request: &PromptRequest<'_>) -> Result<Decision> {
+        self.ask_answer(request).map(PromptAnswer::into_decision)
+    }
+
+    fn ask_answer(&self, request: &PromptRequest<'_>) -> Result<PromptAnswer> {
         let mut child = Command::new(&self.command)
             .arg("--subject")
             .arg(display_subject(request.subject))
@@ -162,7 +252,7 @@ impl Prompt for CommandPrompt {
             .spawn()
             .with_context(|| format!("starting prompt command {}", self.command.display()))?;
 
-        wait_for_prompt(&mut child, self.timeout, &request.default_decision)
+        wait_for_prompt_answer(&mut child, self.timeout, &request.default_decision)
     }
 
     fn requires_graphical_session(&self) -> bool {
@@ -171,47 +261,84 @@ impl Prompt for CommandPrompt {
 }
 
 #[cfg(not(coverage))]
-fn wait_for_prompt(
+fn wait_for_prompt_answer(
     child: &mut std::process::Child,
     timeout: Duration,
     default_decision: &Decision,
-) -> Result<Decision> {
+) -> Result<PromptAnswer> {
     let deadline = Instant::now() + timeout;
 
     while Instant::now() < deadline {
         if let Some(status) = child.try_wait()? {
-            return Ok(decision_from_status(status, default_decision));
+            return Ok(answer_from_status(status, default_decision));
         }
 
         thread::sleep(Duration::from_millis(50));
     }
 
     let _ = child.kill();
-    Ok(default_decision.clone())
+    Ok(PromptAnswer::Default(default_decision.clone()))
 }
 
 #[cfg(not(coverage))]
-fn decision_from_status(status: std::process::ExitStatus, default_decision: &Decision) -> Decision {
+fn answer_from_status(
+    status: std::process::ExitStatus,
+    default_decision: &Decision,
+) -> PromptAnswer {
     match status.code() {
-        Some(0) => Decision::Allow,
-        Some(1) => Decision::Deny,
-        _ => default_decision.clone(),
+        Some(0) => PromptAnswer::Explicit(Decision::Allow),
+        Some(1) => PromptAnswer::Explicit(Decision::Deny),
+        _ => PromptAnswer::Default(default_decision.clone()),
     }
 }
 
 fn display_subject(subject: &ProcessSubject) -> String {
-    subject
-        .executable
+    executable_name(&subject.executable).to_string()
+}
+
+fn executable_name(executable: &Path) -> &str {
+    executable
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("unknown")
-        .to_string()
+}
+
+fn prompt_message(request: &PromptRequest<'_>) -> String {
+    let subject = display_subject(request.subject);
+    let Some(authorization) = request.authorization else {
+        return format!("Allow {subject} to access this config file?");
+    };
+    let owner = executable_name(&authorization.owner_ancestor.executable);
+
+    format!(
+        "Allow {subject} launched by this {owner} process to access {} until Config Guard restarts?",
+        authorization.scope.display()
+    )
+}
+
+fn prompt_detail(request: &PromptRequest<'_>) -> String {
+    let mut detail = format!("{:?}\n{}", request.reason, request.target_path.display());
+    let Some(authorization) = request.authorization else {
+        return detail;
+    };
+    let owner = executable_name(&authorization.owner_ancestor.executable);
+    detail.push_str(&format!(
+        "\n\nGrant: read and write within {}\nOwner process: {owner} (PID {})",
+        authorization.scope.display(),
+        authorization.owner_ancestor.pid
+    ));
+
+    detail
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AuthdPrompt, NonInteractivePrompt, Prompt, PromptRequest};
+    use super::{
+        AncestryAuthorization, AuthdPrompt, NonInteractivePrompt, Prompt, PromptAnswer,
+        PromptRequest,
+    };
     use crate::policy::{Decision, DecisionReason, ProcessSubject};
+    use crate::process::ProcessAncestor;
     use authd_protocol::{AuthResponse, DaemonRequest};
     use std::collections::HashMap;
     use std::fs;
@@ -231,6 +358,10 @@ mod tests {
 
         assert_eq!(prompt.ask(&allow_request).unwrap(), Decision::Allow);
         assert_eq!(prompt.ask(&deny_request).unwrap(), Decision::Deny);
+        assert_eq!(
+            prompt.ask_answer(&allow_request).unwrap(),
+            PromptAnswer::Default(Decision::Allow)
+        );
     }
 
     #[test]
@@ -262,9 +393,9 @@ mod tests {
         let request = prompt_request(&subject, &target_path, Decision::Deny);
         let started = Instant::now();
 
-        let decision = prompt.ask(&request).expect("prompt decision");
+        let answer = prompt.ask_answer(&request).expect("prompt answer");
 
-        assert_eq!(decision, Decision::Deny);
+        assert_eq!(answer, PromptAnswer::Default(Decision::Deny));
         assert!(
             started.elapsed() < Duration::from_millis(250),
             "prompt should respect timeout instead of waiting for authd"
@@ -283,7 +414,18 @@ mod tests {
             let bytes_read = stream.read(&mut buffer).expect("read request");
             let request: DaemonRequest =
                 rmp_serde::from_slice(&buffer[..bytes_read]).expect("decode request");
-            assert!(matches!(request, DaemonRequest::Exec(_)));
+            let DaemonRequest::Exec(request) = request else {
+                panic!("expected authd Exec request")
+            };
+            assert_eq!(
+                request.prompt_message.as_deref(),
+                Some(
+                    "Allow test-subject launched by this pi process to access /home/osso/.local/state/pi until Config Guard restarts?"
+                )
+            );
+            let detail = request.prompt_detail.expect("prompt detail");
+            assert!(detail.contains("Grant: read and write within /home/osso/.local/state/pi"));
+            assert!(detail.contains("Owner process: pi (PID 7)"));
 
             let response =
                 rmp_serde::to_vec(&AuthResponse::Success { pid: 0 }).expect("encode response");
@@ -293,11 +435,13 @@ mod tests {
         let prompt = AuthdPrompt::with_socket_path(&socket_path, Duration::from_secs(1));
         let subject = test_subject();
         let target_path = test_target_path();
-        let request = prompt_request(&subject, &target_path, Decision::Deny);
+        let authorization = test_authorization();
+        let mut request = prompt_request(&subject, &target_path, Decision::Deny);
+        request.authorization = Some(&authorization);
 
-        let decision = prompt.ask(&request).expect("prompt decision");
+        let answer = prompt.ask_answer(&request).expect("prompt answer");
 
-        assert_eq!(decision, Decision::Allow);
+        assert_eq!(answer, PromptAnswer::Explicit(Decision::Allow));
         server.join().expect("server thread");
         let _ = fs::remove_file(socket_path);
     }
@@ -313,6 +457,7 @@ mod tests {
             reason: DecisionReason::CrossOwnerRead,
             default_decision,
             env: HashMap::new(),
+            authorization: None,
         }
     }
 
@@ -326,6 +471,18 @@ mod tests {
 
     fn test_target_path() -> PathBuf {
         PathBuf::from("/home/osso/.config/example")
+    }
+
+    fn test_authorization() -> AncestryAuthorization {
+        AncestryAuthorization {
+            subject_executable: PathBuf::from("/usr/bin/test-subject"),
+            owner_ancestor: ProcessAncestor {
+                pid: 7,
+                executable: PathBuf::from("/home/osso/.local/share/pi/pi"),
+                start_time_ticks: Some(50),
+            },
+            scope: PathBuf::from("/home/osso/.local/state/pi"),
+        }
     }
 
     fn bind_test_socket(socket_path: &Path) -> UnixListener {

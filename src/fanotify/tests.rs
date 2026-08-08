@@ -7,11 +7,12 @@ use super::{Mode, run};
 use super::{
     PromptDecisionCache, access_kind, audit_watch_mask, child_directories, ensure_event_descriptor,
     ensure_path_exists, format_guard_decision, guard_watch_mask, has_graphical_session,
-    is_permission_event, is_watched_path, prompt_for_policy_decision, response_code,
+    is_permission_event, is_watched_path, prompt_for_policy_decision,
+    prompt_for_policy_decision_with_authorization, response_code,
 };
 use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject};
-use crate::process::ProcessIdentity;
-use crate::prompt::{Prompt, PromptRequest};
+use crate::process::{ProcessAncestor, ProcessIdentity};
+use crate::prompt::{AncestryAuthorization, Prompt, PromptAnswer, PromptRequest};
 use std::cell::Cell;
 #[cfg(not(coverage))]
 use std::cell::RefCell;
@@ -94,6 +95,21 @@ impl Prompt for CountingPrompt {
     }
 }
 
+struct DefaultingPrompt {
+    calls: Cell<usize>,
+}
+
+impl Prompt for DefaultingPrompt {
+    fn ask(&self, _request: &PromptRequest<'_>) -> anyhow::Result<Decision> {
+        self.calls.set(self.calls.get() + 1);
+        Ok(Decision::Allow)
+    }
+
+    fn ask_answer(&self, request: &PromptRequest<'_>) -> anyhow::Result<PromptAnswer> {
+        self.ask(request).map(PromptAnswer::Default)
+    }
+}
+
 fn cat_subject() -> ProcessSubject {
     ProcessSubject {
         executable: PathBuf::from("/usr/bin/cat"),
@@ -110,6 +126,29 @@ fn cat_process(pid: i32, start_time_ticks: u64) -> ProcessIdentity {
         cwd: None,
         start_time_ticks: Some(start_time_ticks),
         ancestors: Vec::new(),
+        ancestor_processes: Vec::new(),
+    }
+}
+
+fn cat_process_with_pi_ancestor(
+    pid: i32,
+    start_time_ticks: u64,
+    pi_pid: i32,
+    pi_start_time_ticks: u64,
+) -> ProcessIdentity {
+    let pi_executable = PathBuf::from("/home/osso/.local/share/pi/pi");
+    ProcessIdentity {
+        pid,
+        executable: Some(PathBuf::from("/usr/bin/cat")),
+        command: vec!["cat".to_string()],
+        cwd: None,
+        start_time_ticks: Some(start_time_ticks),
+        ancestors: vec![pi_executable.clone()],
+        ancestor_processes: vec![ProcessAncestor {
+            pid: pi_pid,
+            executable: pi_executable,
+            start_time_ticks: Some(pi_start_time_ticks),
+        }],
     }
 }
 
@@ -144,6 +183,38 @@ fn resolve_cat_prompt(
         policy_decision,
     )
     .expect("resolve decision")
+}
+
+fn resolve_owned_ancestor_prompt(
+    prompt: &dyn Prompt,
+    cache: &mut PromptDecisionCache,
+    process: &ProcessIdentity,
+    access: AccessKind,
+    target_path: &str,
+    scope: &str,
+) -> Decision {
+    let subject = process.subject();
+    let policy_decision = Decision::Prompt {
+        reason: match access {
+            AccessKind::Read => DecisionReason::CrossOwnerRead,
+            AccessKind::Write | AccessKind::DestructiveWrite => DecisionReason::CrossOwnerWrite,
+        },
+        default: Box::new(Decision::Allow),
+        scope: PathBuf::from(scope),
+    };
+    let authorization = AncestryAuthorization::new(process, "pi", &policy_decision);
+
+    prompt_for_policy_decision_with_authorization(
+        prompt,
+        cache,
+        super::PromptDecisionKey::new(process, access, &policy_decision),
+        authorization,
+        &subject,
+        Path::new(target_path),
+        graphical_env(),
+        policy_decision,
+    )
+    .expect("resolve ancestry-qualified decision")
 }
 
 #[cfg(not(coverage))]
@@ -313,6 +384,145 @@ fn resolve_prompts_again_after_process_generation_changes() {
 
     assert_eq!(first, Decision::Allow);
     assert_eq!(second, Decision::Allow);
+    assert_eq!(prompt.calls.get(), 2);
+}
+
+#[test]
+fn resolve_reuses_explicit_allow_for_new_helper_under_same_pi_generation() {
+    let first_process = cat_process_with_pi_ancestor(42, 100, 7, 50);
+    let next_process = cat_process_with_pi_ancestor(43, 200, 7, 50);
+    let prompt = CountingPrompt::new(Decision::Allow);
+    let mut cache = PromptDecisionCache::default();
+
+    let first = resolve_owned_ancestor_prompt(
+        &prompt,
+        &mut cache,
+        &first_process,
+        AccessKind::Read,
+        "/home/osso/.local/state/pi/control.sqlite",
+        "/home/osso/.local/state/pi",
+    );
+    let second = resolve_owned_ancestor_prompt(
+        &prompt,
+        &mut cache,
+        &next_process,
+        AccessKind::Write,
+        "/home/osso/.local/state/pi/control.sqlite-wal",
+        "/home/osso/.local/state/pi",
+    );
+
+    assert_eq!(first, Decision::Allow);
+    assert_eq!(second, Decision::Allow);
+    assert_eq!(prompt.calls.get(), 1);
+}
+
+#[test]
+fn resolve_does_not_share_allow_with_another_pi_generation() {
+    let first_process = cat_process_with_pi_ancestor(42, 100, 7, 50);
+    let next_process = cat_process_with_pi_ancestor(43, 200, 8, 60);
+    let prompt = CountingPrompt::new(Decision::Allow);
+    let mut cache = PromptDecisionCache::default();
+
+    resolve_owned_ancestor_prompt(
+        &prompt,
+        &mut cache,
+        &first_process,
+        AccessKind::Read,
+        "/home/osso/.local/state/pi/control.sqlite",
+        "/home/osso/.local/state/pi",
+    );
+    resolve_owned_ancestor_prompt(
+        &prompt,
+        &mut cache,
+        &next_process,
+        AccessKind::Read,
+        "/home/osso/.local/state/pi/control.sqlite",
+        "/home/osso/.local/state/pi",
+    );
+
+    assert_eq!(prompt.calls.get(), 2);
+}
+
+#[test]
+fn resolve_does_not_share_allow_across_owned_scopes() {
+    let first_process = cat_process_with_pi_ancestor(42, 100, 7, 50);
+    let next_process = cat_process_with_pi_ancestor(43, 200, 7, 50);
+    let prompt = CountingPrompt::new(Decision::Allow);
+    let mut cache = PromptDecisionCache::default();
+
+    resolve_owned_ancestor_prompt(
+        &prompt,
+        &mut cache,
+        &first_process,
+        AccessKind::Read,
+        "/home/osso/.local/state/pi/control.sqlite",
+        "/home/osso/.local/state/pi",
+    );
+    resolve_owned_ancestor_prompt(
+        &prompt,
+        &mut cache,
+        &next_process,
+        AccessKind::Read,
+        "/home/osso/.config/pi/settings.json",
+        "/home/osso/.config/pi",
+    );
+
+    assert_eq!(prompt.calls.get(), 2);
+}
+
+#[test]
+fn resolve_keeps_denial_scoped_to_each_helper_generation() {
+    let first_process = cat_process_with_pi_ancestor(42, 100, 7, 50);
+    let next_process = cat_process_with_pi_ancestor(43, 200, 7, 50);
+    let prompt = CountingPrompt::new(Decision::Deny);
+    let mut cache = PromptDecisionCache::default();
+
+    resolve_owned_ancestor_prompt(
+        &prompt,
+        &mut cache,
+        &first_process,
+        AccessKind::Read,
+        "/home/osso/.local/state/pi/control.sqlite",
+        "/home/osso/.local/state/pi",
+    );
+    resolve_owned_ancestor_prompt(
+        &prompt,
+        &mut cache,
+        &next_process,
+        AccessKind::Read,
+        "/home/osso/.local/state/pi/control.sqlite-wal",
+        "/home/osso/.local/state/pi",
+    );
+
+    assert_eq!(prompt.calls.get(), 2);
+}
+
+#[test]
+fn resolve_does_not_cache_default_allow_for_owner_ancestry() {
+    let first_process = cat_process_with_pi_ancestor(42, 100, 7, 50);
+    let next_process = cat_process_with_pi_ancestor(43, 200, 7, 50);
+    let prompt = DefaultingPrompt {
+        calls: Cell::new(0),
+    };
+    let mut cache = PromptDecisionCache::default();
+
+    resolve_owned_ancestor_prompt(
+        &prompt,
+        &mut cache,
+        &first_process,
+        AccessKind::Read,
+        "/home/osso/.local/state/pi/control.sqlite",
+        "/home/osso/.local/state/pi",
+    );
+    resolve_owned_ancestor_prompt(
+        &prompt,
+        &mut cache,
+        &next_process,
+        AccessKind::Read,
+        "/home/osso/.local/state/pi/control.sqlite-wal",
+        "/home/osso/.local/state/pi",
+    );
+
     assert_eq!(prompt.calls.get(), 2);
 }
 

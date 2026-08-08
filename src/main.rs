@@ -226,6 +226,7 @@ fn run_test_prompt(
         reason,
         default_decision,
         env: collect_wayland_env(),
+        authorization: None,
     };
     let decision = AuthdPrompt::new(Duration::from_secs(DEFAULT_AUTHD_PROMPT_TIMEOUT_SECONDS))
         .ask(&request)?;
@@ -260,7 +261,7 @@ fn run_audit_prompt(
         paths,
         excluded_paths,
         config,
-        Some(build_prompt(
+        Some(config_guard::prompt::build(
             prompt_command,
             Duration::from_secs(timeout_seconds),
         )),
@@ -379,7 +380,7 @@ fn run_guard(
     let policy_config = load_policy_config(config)?;
     let mut policy = StaticPolicy::new(policy_config, path_aliases);
     let timeout = Duration::from_secs(timeout_seconds);
-    let prompt = build_prompt(prompt_command, timeout);
+    let prompt = config_guard::prompt::build(prompt_command, timeout);
 
     config_guard::fanotify::run(
         &paths,
@@ -436,20 +437,13 @@ impl AccessPolicy for StaticPolicy {
         target_path: &Path,
         access: AccessKind,
     ) -> Result<Decision> {
-        Ok(self
-            .policy
-            .decide(subject, self.decision_path(target_path).as_ref(), access))
+        let target_path = self.decision_path(target_path);
+        Ok(self.policy.decide(subject, target_path, access))
     }
-}
 
-#[cfg(not(coverage))]
-fn build_prompt(
-    prompt_command: Option<PathBuf>,
-    timeout: Duration,
-) -> Box<dyn config_guard::prompt::Prompt + Sync> {
-    match prompt_command {
-        Some(command) => Box::new(config_guard::prompt::CommandPrompt::new(command, timeout)),
-        None => Box::new(config_guard::prompt::AuthdPrompt::new(timeout)),
+    fn owner_subject(&self, target_path: &Path) -> Option<String> {
+        let target_path = self.decision_path(target_path);
+        self.policy.owner_subject(target_path).map(str::to_string)
     }
 }
 
