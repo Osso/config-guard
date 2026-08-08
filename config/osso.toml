@@ -793,6 +793,19 @@ path = "/home/osso/.config/niri"
 owner = "niri"
 allowed_subjects = []
 
+# noctalia-shell regenerates this include file on every theme apply, using one
+# cp plus ~60 sed -i invocations. Without these rules each invocation raises a
+# separate cross-owner prompt and the theme file is left half-substituted.
+[[shared_paths]]
+path = "/home/osso/.config/niri/noctalia.kdl"
+allowed_subjects = ["cp", "sed"]
+access = ["read", "write"]
+
+[[shared_paths]]
+path = "/home/osso/.config/niri/config.kdl"
+allowed_subjects = ["grep"]
+access = ["read"]
+
 [[owned_paths]]
 path = "/home/osso/.config/noctalia"
 owner = "quickshell"
