@@ -101,6 +101,7 @@ Local policy file:
 - [x] Parse `config/osso.toml`.
 - [x] Allow known owners configured in `config/osso.toml`.
 - [x] Protect `$HOME/.local/share/firefox-backup` for owner `firefox-profile-backup`, allow `sqlite3` only with a `firefox-profile-backup` ancestor, and allow `systemd-executor` only with a `systemd` ancestor; matching subjects without the required ancestor remain prompted.
+- [x] Share `$HOME/.config/config-guard/config.toml` for read access to all subjects while keeping writes to that file and reads or writes to adjacent files under the owned `$HOME/.config/config-guard` directory protected.
 - [x] Allow `syncthing-cli` as a subject for both `$HOME/.config/syncthing-cli` and `$HOME/.config/syncthing`.
 - [x] Temporarily allow subject `git` to read only `$HOME/.config/gc` and `$HOME/.config/gmail-cli` because their credential files are intentionally tracked in the Provisioning repository; do not allow Git helpers or broader sensitive-config access, and retire this exception when tracked credential storage is replaced by a workflow that does not require Git to open these files.
 - [x] Protect `/var/lib/secrets-broker` as an owned credential store for `secrets-broker`, allow only `secrets-broker-admin` as an additional subject, and deny every other subject before prompt or fail-open handling; this strict denial remains separate from guard-mode prompt fallback.

@@ -645,6 +645,11 @@ path = "/home/osso/.config/config-guard"
 owner = "config-guard"
 allowed_subjects = []
 
+[[shared_paths]]
+path = "/home/osso/.config/config-guard/config.toml"
+allowed_subjects = ["*"]
+access = ["read"]
+
 [[owned_paths]]
 path = "/home/osso/.config/dconf"
 owner = "dconf"
