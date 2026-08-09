@@ -26,7 +26,7 @@ An owned path may set `deny_non_owner = true`. Its configured owner and allowed 
 
 The deployed policy applies this strict rule to `/var/lib/secrets-broker`: owner `secrets-broker`, explicit additional subject `secrets-broker-admin`, and `deny_non_owner = true`. Other subjects cannot reach the credential store through prompt or fail-open handling; Unix ownership remains the primary boundary if Config Guard is stopped.
 
-The deployed policy removed broad ownership entries for `/etc`, `/var`, `/var/log`, `$HOME/.local/share`, and `$HOME/.local/state`. Sensitive subdirectories remain protected by listing those directories explicitly in `owned_paths` or another applicable policy section. Add a specific entry when a new directory must receive ownership protection; adding a directory to a monitored root alone is not sufficient.
+The deployed policy removed broad ownership entries for `/etc`, `/var`, `/var/log`, `$HOME/.local/share`, and `$HOME/.local/state`, and intentionally leaves `$HOME/.local/share/uv` unowned. Explicit sibling subtrees under `$HOME/.local/share` remain protected when listed in `owned_paths` or another applicable policy section. Add a specific entry when a new directory must receive ownership protection; adding a directory to a monitored root alone is not sufficient.
 
 The local policy explicitly owns `$HOME/.local/share/firefox-backup` for `firefox-profile-backup`. It allows the existing `sqlite3` helper only when `firefox-profile-backup` is an ancestor, and allows `systemd-executor` only when `systemd` is an ancestor; either executable without its required ancestor remains subject to the normal prompt decision.
 

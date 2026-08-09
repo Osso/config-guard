@@ -105,7 +105,7 @@ Local policy file:
 - [x] Temporarily allow subject `git` to read only `$HOME/.config/gc` and `$HOME/.config/gmail-cli` because their credential files are intentionally tracked in the Provisioning repository; do not allow Git helpers or broader sensitive-config access, and retire this exception when tracked credential storage is replaced by a workflow that does not require Git to open these files.
 - [x] Protect `/var/lib/secrets-broker` as an owned credential store for `secrets-broker`, allow only `secrets-broker-admin` as an additional subject, and deny every other subject before prompt or fail-open handling; this strict denial remains separate from guard-mode prompt fallback.
 - [x] Leave `/etc/NetworkManager/dispatcher.d` and descendants unprotected for all subjects and access kinds through an explicit shared-path exception; keep `/etc/NetworkManager` and sibling subtrees owned and protected.
-- [x] Keep broad ownership entries removed for `/etc`, `/var`, `/var/log`, `$HOME/.local/share`, and `$HOME/.local/state`; protect sensitive subdirectories by listing them explicitly.
+- [x] Keep broad ownership entries removed for `/etc`, `/var`, `/var/log`, `$HOME/.local/share`, and `$HOME/.local/state`; leave `$HOME/.local/share/uv` intentionally unowned and protect explicit sibling subtrees by listing them explicitly.
 - [x] Prompt dev tools that read sensitive configured paths.
 - [x] Allow Claude-spawned shell helpers for configured Claude paths when the Claude ancestor rule matches.
 - [x] Allow Claude-spawned snapshot helpers covered by the local policy.

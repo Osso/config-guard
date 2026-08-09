@@ -407,16 +407,6 @@ fn osso_config_allows_observed_application_workflows() {
 
     let cases = [
         (
-            "pyrun-jsonl",
-            "/home/osso/.local/share/uv/python/cpython/bin/python3.12",
-            config_guard::policy::AccessKind::Read,
-        ),
-        (
-            "pi",
-            "/home/osso/.local/share/uv/tools/pyrun/bin/pyrun-jsonl",
-            config_guard::policy::AccessKind::Read,
-        ),
-        (
             "claude-bash-hoo",
             "/home/osso/.config/claude-bash-hook/hostrun.toml",
             config_guard::policy::AccessKind::Read,
@@ -498,6 +488,40 @@ fn osso_config_allows_observed_application_workflows() {
             policy.decide(&subject(owner), path, access),
             Decision::Allow,
             "{owner} should access {path}",
+        );
+    }
+}
+
+#[test]
+fn osso_config_leaves_uv_unowned_while_protecting_local_share_siblings() {
+    let policy = Policy::new(parse_osso_config());
+
+    for path in [
+        "/home/osso/.local/share/uv",
+        "/home/osso/.local/share/uv/tools/pyrun/bin/pyrun-jsonl",
+    ] {
+        let decision = policy.decide(
+            &subject("cp"),
+            path,
+            config_guard::policy::AccessKind::Write,
+        );
+
+        assert_eq!(decision, Decision::Allow, "cp should write unowned {path}");
+    }
+
+    for path in [
+        "/home/osso/.local/share/firefox-backup/current/cookies.sqlite",
+        "/home/osso/.local/share/keyrings/login.keyring",
+    ] {
+        let decision = policy.decide(
+            &subject("cp"),
+            path,
+            config_guard::policy::AccessKind::Write,
+        );
+
+        assert!(
+            matches!(decision, Decision::Prompt { .. }),
+            "cp should prompt for protected {path}"
         );
     }
 }

@@ -928,16 +928,6 @@ owner = "WebKitNetworkProcess"
 allowed_subjects = ["tradebot-desktop"]
 
 [[owned_paths]]
-path = "/home/osso/.local/share/uv"
-owner = "uv"
-allowed_subjects = [
-  "pi",
-  "pyrun-jsonl",
-  "python3.12",
-  "uv",
-]
-
-[[owned_paths]]
 path = "/home/osso/.local/share/keyrings"
 owner = "gnome-keyring"
 allowed_subjects = ["gnome-keyring-daemon"]
