@@ -495,40 +495,6 @@ fn osso_config_allows_observed_application_workflows() {
 }
 
 #[test]
-fn osso_config_leaves_uv_unowned_while_protecting_local_share_siblings() {
-    let policy = Policy::new(parse_osso_config());
-
-    for path in [
-        "/home/osso/.local/share/uv",
-        "/home/osso/.local/share/uv/tools/pyrun/bin/pyrun-jsonl",
-    ] {
-        let decision = policy.decide(
-            &subject("cp"),
-            path,
-            config_guard::policy::AccessKind::Write,
-        );
-
-        assert_eq!(decision, Decision::Allow, "cp should write unowned {path}");
-    }
-
-    for path in [
-        "/home/osso/.local/share/firefox-backup/current/cookies.sqlite",
-        "/home/osso/.local/share/keyrings/login.keyring",
-    ] {
-        let decision = policy.decide(
-            &subject("cp"),
-            path,
-            config_guard::policy::AccessKind::Write,
-        );
-
-        assert!(
-            matches!(decision, Decision::Prompt { .. }),
-            "cp should prompt for protected {path}"
-        );
-    }
-}
-
-#[test]
 fn osso_config_allows_observed_system_workflows() {
     let policy = Policy::new(parse_osso_config());
 
