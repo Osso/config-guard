@@ -99,6 +99,7 @@ Local policy file:
 
 - [x] Parse `config/osso.toml`.
 - [x] Allow known owners configured in `config/osso.toml`.
+- [x] Allow `firefox` to read `$HOME/.config/dconf` and allow `crashhelper` to read and write Firefox-owned configuration needed during startup.
 - [x] Protect `$HOME/.local/share/firefox-backup` for owner `firefox-profile-backup`, allow `sqlite3` only with a `firefox-profile-backup` ancestor, and allow `systemd-executor` only with a `systemd` ancestor; matching subjects without the required ancestor remain prompted.
 - [x] Share `$HOME/.config/config-guard/config.toml` for read access to all subjects while keeping writes to that file and reads or writes to adjacent files under the owned `$HOME/.config/config-guard` directory protected.
 - [x] Allow `syncthing-cli` as a subject for both `$HOME/.config/syncthing-cli` and `$HOME/.config/syncthing`.
@@ -158,6 +159,7 @@ CLI and deployment:
 - `tests/learning.rs` - audit learning root selection and alias mapping.
 - `tests/reconcile.rs` - reconcile planning and apply behavior.
 - `tests/config_file.rs` - local `config/osso.toml` policy expectations, including Noctalia Niri helper scope and ancestry-scoped `sqlite3` and `systemd-executor` access to Firefox backup data.
+- `tests/config_file/firefox.rs` - Firefox startup access to dconf and Firefox-owned crash-helper state.
 - `tests/deployment.rs` - static audit-mode unit and deploy activation-script contract.
 - `src/fanotify.rs` unit tests - mode masks, merged close classification, overflow handling, scope filtering, unknown-subject evaluation, directory walking, and excluded-tree behavior.
 - `src/fanotify/audit_identity.rs` unit tests - queued identities, bounded eviction, PID-generation replacement, take-on-close, and failed-open invalidation.

@@ -117,6 +117,7 @@ access = ["read"]
 path = "/home/osso/.config/firefox"
 owner = "firefox"
 allowed_subjects = [
+  "crashhelper",
   "crashreporter",
   "firefox-profile-backup",
 ]
@@ -662,6 +663,11 @@ allowed_subjects = [
   "vivaldi-bin",
   "xdg-desktop-portal-gtk",
 ]
+
+[[shared_paths]]
+path = "/home/osso/.config/dconf"
+allowed_subjects = ["firefox"]
+access = ["read"]
 
 [[owned_paths]]
 path = "/home/osso/.config/depot"

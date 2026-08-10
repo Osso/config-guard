@@ -1,3 +1,5 @@
+#[path = "config_file/firefox.rs"]
+mod firefox;
 #[path = "config_file/noctalia.rs"]
 mod noctalia;
 #[path = "config_file/policy_file.rs"]
