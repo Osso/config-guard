@@ -28,7 +28,7 @@ The deployed policy applies this strict rule to `/var/lib/secrets-broker`: owner
 
 The deployed policy removed broad ownership entries for `/etc`, `/var`, `/var/log`, `$HOME/.local/share`, and `$HOME/.local/state`, and intentionally leaves `$HOME/.local/share/uv` unowned. Explicit sibling subtrees under `$HOME/.local/share` remain protected when listed in `owned_paths` or another applicable policy section. Add a specific entry when a new directory must receive ownership protection; adding a directory to a monitored root alone is not sufficient.
 
-The local policy lets Firefox read `$HOME/.config/dconf` and lets `crashhelper` access Firefox-owned configuration so normal startup does not wait on guard prompts. It also explicitly owns `$HOME/.local/share/firefox-backup` for `firefox-profile-backup`. The existing `sqlite3` helper is allowed only when `firefox-profile-backup` is an ancestor, and `systemd-executor` only when `systemd` is an ancestor; either executable without its required ancestor remains subject to the normal prompt decision.
+The local policy lets `firefox` read `$HOME/.config/dconf` and lets `crashhelper` read and write `$HOME/.config/firefox` so normal startup does not wait on guard prompts. It also explicitly owns `$HOME/.local/share/firefox-backup` for `firefox-profile-backup`. The existing `sqlite3` helper is allowed only when `firefox-profile-backup` is an ancestor, and `systemd-executor` only when `systemd` is an ancestor; either executable without its required ancestor remains subject to the normal prompt decision.
 
 Audit and guard use different fanotify strategies:
 
