@@ -336,10 +336,9 @@ fn prompt_message(request: &PromptRequest<'_>) -> String {
         return format!("Allow {subject} to access this config file?");
     };
     let owner_executable = &authorization.owner_ancestor.executable;
-    let owner = executable_name(owner_executable);
 
     format!(
-        "Allow {subject} launched by {} to access all config owned by {owner} until Config Guard restarts?",
+        "Allow {subject} launched by {} to access all Config Guard protected paths until Config Guard restarts?",
         owner_executable.display()
     )
 }
@@ -350,9 +349,8 @@ fn prompt_detail(request: &PromptRequest<'_>) -> String {
         return detail;
     };
     let owner_executable = &authorization.owner_ancestor.executable;
-    let owner = executable_name(owner_executable);
     detail.push_str(&format!(
-        "\n\nGrant: read and write across all config owned by {owner}\nOwner executable: {}\nCurrent owner process: PID {}",
+        "\n\nGrant: read and write across all Config Guard protected paths\nOwner executable: {}\nCurrent owner process: PID {}",
         owner_executable.display(),
         authorization.owner_ancestor.pid
     ));
@@ -449,11 +447,13 @@ mod tests {
             assert_eq!(
                 request.prompt_message.as_deref(),
                 Some(
-                    "Allow test-subject launched by /home/osso/.local/share/pi/pi to access all config owned by pi until Config Guard restarts?"
+                    "Allow test-subject launched by /home/osso/.local/share/pi/pi to access all Config Guard protected paths until Config Guard restarts?"
                 )
             );
             let detail = request.prompt_detail.expect("prompt detail");
-            assert!(detail.contains("Grant: read and write across all config owned by pi"));
+            assert!(
+                detail.contains("Grant: read and write across all Config Guard protected paths")
+            );
             assert!(detail.contains("Owner executable: /home/osso/.local/share/pi/pi"));
             assert!(detail.contains("Current owner process: PID 7"));
 

@@ -504,7 +504,7 @@ fn evaluate_guard_access(
     let policy_decision = policy.decide(&subject, target_path, access)?;
     let prompt_key = PromptDecisionKey::new(&process, access, &policy_decision);
     let authorization = policy
-        .owner_subject(target_path)
+        .authorization_owner_subject(&subject)
         .and_then(|owner| AncestryAuthorization::new(&process, &owner, &policy_decision));
     log_guard_decision(
         metadata.pid,

@@ -441,9 +441,10 @@ impl AccessPolicy for StaticPolicy {
         Ok(self.policy.decide(subject, target_path, access))
     }
 
-    fn owner_subject(&self, target_path: &Path) -> Option<String> {
-        let target_path = self.decision_path(target_path);
-        self.policy.owner_subject(target_path).map(str::to_string)
+    fn authorization_owner_subject(&self, subject: &ProcessSubject) -> Option<String> {
+        self.policy
+            .authorization_owner_subject(subject)
+            .map(str::to_string)
     }
 }
 

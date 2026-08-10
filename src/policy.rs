@@ -134,9 +134,14 @@ impl Policy {
         }
     }
 
-    pub fn owner_subject(&self, target_path: impl AsRef<Path>) -> Option<&str> {
-        self.owner_for(target_path.as_ref())
-            .map(|owner| owner.owner.as_str())
+    pub fn authorization_owner_subject(&self, subject: &ProcessSubject) -> Option<&str> {
+        subject.ancestors.iter().find_map(|ancestor| {
+            self.config
+                .owned_paths
+                .iter()
+                .find(|owned| owner_matches_ancestor(owned, ancestor))
+                .map(|owned| owned.owner.as_str())
+        })
     }
 
     fn owner_for(&self, target_path: &Path) -> Option<&OwnedPath> {
@@ -279,6 +284,10 @@ fn ancestor_matches(rule: &str, ancestor: &Path) -> bool {
     }
 
     ancestor.file_name().and_then(|name| name.to_str()) == Some(rule)
+}
+
+fn owner_matches_ancestor(owner: &OwnedPath, ancestor: &Path) -> bool {
+    ancestor.file_name().and_then(|name| name.to_str()) == Some(owner.owner.as_str())
 }
 
 fn shared_path_matches(shared: &SharedPath, target_path: &Path) -> bool {

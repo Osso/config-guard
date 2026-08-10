@@ -100,7 +100,7 @@ pub trait AccessPolicy {
         access: AccessKind,
     ) -> Result<Decision>;
 
-    fn owner_subject(&self, _target_path: &Path) -> Option<String> {
+    fn authorization_owner_subject(&self, _subject: &ProcessSubject) -> Option<String> {
         None
     }
 }

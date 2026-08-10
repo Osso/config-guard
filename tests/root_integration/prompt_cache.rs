@@ -263,7 +263,7 @@ fn guard_reuses_allow_across_pi_sessions_and_owned_scopes() {
     assert_eq!(
         prompt_count(&fixture),
         1,
-        "B1 under another logical Pi session and owned scope must reuse A1's Allow; session A PID={} session B PID={}; prompt log: {}",
+        "B1 under another logical Pi session and a scope owned by another executable must reuse A1's Allow; session A PID={} session B PID={}; prompt log: {}",
         session_a.pid(),
         session_b.pid(),
         fs::read_to_string(fixture.prompt_log_path()).expect("read prompt log")
@@ -274,7 +274,7 @@ fn configure_pi_state(fixture: &RootFixture) {
     fs::write(
         fixture.config_path(),
         format!(
-            "fail_open = false\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"config-guard-test-owner\"\nallowed_subjects = []\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"config-guard-test-owner\"\nallowed_subjects = []\n",
+            "fail_open = false\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"config-guard-test-owner\"\nallowed_subjects = []\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"other-owner\"\nallowed_subjects = []\n",
             fixture.protected_dir().display(),
             fixture.other_protected_dir().display()
         ),
