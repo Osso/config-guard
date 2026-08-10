@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 #[test]
 fn resolve_reuses_allow_across_detached_runners_in_one_pi_session() {
-    let first_process = cat_process_with_pi_ancestors(42, 100, &[(8, 60), (7, 50)]);
-    let next_process = cat_process_with_pi_ancestors(43, 200, &[(9, 70), (7, 50)]);
+    let first_process = python_process_with_pi_ancestors(42, 100, &[(8, 60), (7, 50)]);
+    let next_process = python_process_with_pi_ancestors(43, 200, &[(9, 70), (7, 50)]);
     let prompt = CountingPrompt::new(Decision::Allow);
     let mut cache = super::PromptDecisionCache::default();
 
@@ -31,9 +31,69 @@ fn resolve_reuses_allow_across_detached_runners_in_one_pi_session() {
 }
 
 #[test]
-fn resolve_does_not_share_allow_through_a_distant_pi_controller() {
-    let first_process = cat_process_with_nested_pi_session(42, 100, (8, 60), (7, 50), (5, 30));
-    let next_process = cat_process_with_nested_pi_session(43, 200, (11, 80), (10, 70), (5, 30));
+fn resolve_reuses_allow_across_different_pi_sessions() {
+    let first_process = python_process_with_nested_pi_session(42, 100, (8, 60), (7, 50), (5, 30));
+    let next_process = python_process_with_nested_pi_session(43, 200, (11, 80), (10, 70), (5, 30));
+    let prompt = CountingPrompt::new(Decision::Allow);
+    let mut cache = super::PromptDecisionCache::default();
+
+    resolve_owned_ancestor_prompt(
+        &prompt,
+        &mut cache,
+        &first_process,
+        AccessKind::Read,
+        "/home/osso/.local/state/pi/control.sqlite",
+        "/home/osso/.local/state/pi",
+    );
+    resolve_owned_ancestor_prompt(
+        &prompt,
+        &mut cache,
+        &next_process,
+        AccessKind::Read,
+        "/home/osso/.local/state/pi/control.sqlite",
+        "/home/osso/.local/state/pi",
+    );
+
+    assert_eq!(prompt.calls.get(), 1);
+}
+
+#[test]
+fn resolve_denies_same_basename_owner_from_different_executable_path() {
+    let first_process =
+        python_process_with_owner_path(42, 100, "/home/osso/.local/share/pi/pi", 7, 50);
+    let next_process = python_process_with_owner_path(43, 200, "/opt/pi/pi", 8, 60);
+    let mut prompt = CountingPrompt::new(Decision::Allow);
+    let mut cache = super::PromptDecisionCache::default();
+
+    let first = resolve_owned_ancestor_prompt(
+        &prompt,
+        &mut cache,
+        &first_process,
+        AccessKind::Read,
+        "/home/osso/.local/state/pi/control.sqlite",
+        "/home/osso/.local/state/pi",
+    );
+    prompt.set_decision(Decision::Deny);
+    let second = resolve_owned_ancestor_prompt(
+        &prompt,
+        &mut cache,
+        &next_process,
+        AccessKind::Read,
+        "/home/osso/.local/state/pi/control.sqlite",
+        "/home/osso/.local/state/pi",
+    );
+
+    assert_eq!(first, Decision::Allow);
+    assert_eq!(second, Decision::Deny);
+    assert_eq!(prompt.calls.get(), 2);
+}
+
+#[test]
+fn resolve_does_not_share_allow_with_different_helper_path() {
+    let first_process = python_process_with_pi_ancestors(42, 100, &[(7, 50)]);
+    let mut next_process = python_process_with_pi_ancestors(43, 200, &[(7, 50)]);
+    next_process.executable = Some(PathBuf::from("/usr/bin/python3.12"));
+    next_process.command = vec!["python3.12".to_string()];
     let prompt = CountingPrompt::new(Decision::Allow);
     let mut cache = super::PromptDecisionCache::default();
 
@@ -125,7 +185,7 @@ fn resolve_does_not_share_allow_past_owner_without_generation_identity() {
     assert_eq!(prompt.calls.get(), 2);
 }
 
-fn cat_process_with_pi_ancestors(
+fn python_process_with_pi_ancestors(
     pid: i32,
     start_time_ticks: u64,
     pi_generations: &[(i32, u64)],
@@ -140,7 +200,51 @@ fn cat_process_with_pi_ancestors(
         })
         .collect();
 
-    cat_process_with_ancestors(pid, start_time_ticks, ancestors)
+    let mut process = cat_process_with_ancestors(pid, start_time_ticks, ancestors);
+    process.executable = Some(PathBuf::from(
+        "/home/osso/.local/share/uv/python/cpython-3.12.12-linux-x86_64-gnu/bin/python3.12",
+    ));
+    process.command = vec!["python3.12".to_string()];
+    process
+}
+
+fn python_process_with_owner_path(
+    pid: i32,
+    start_time_ticks: u64,
+    owner_path: &str,
+    owner_pid: i32,
+    owner_start_time_ticks: u64,
+) -> ProcessIdentity {
+    let mut process = python_process_with_pi_ancestors(
+        pid,
+        start_time_ticks,
+        &[(owner_pid, owner_start_time_ticks)],
+    );
+    let owner_executable = PathBuf::from(owner_path);
+    process.ancestors[0] = owner_executable.clone();
+    process.ancestor_processes[0].executable = owner_executable;
+    process
+}
+
+fn python_process_with_nested_pi_session(
+    pid: i32,
+    start_time_ticks: u64,
+    runner: (i32, u64),
+    session: (i32, u64),
+    distant_controller: (i32, u64),
+) -> ProcessIdentity {
+    let mut process = cat_process_with_nested_pi_session(
+        pid,
+        start_time_ticks,
+        runner,
+        session,
+        distant_controller,
+    );
+    process.executable = Some(PathBuf::from(
+        "/home/osso/.local/share/uv/python/cpython-3.12.12-linux-x86_64-gnu/bin/python3.12",
+    ));
+    process.command = vec!["python3.12".to_string()];
+    process
 }
 
 fn cat_process_with_nested_pi_session(

@@ -15,11 +15,16 @@ use std::time::Instant;
 
 const IPC_BUFFER_SIZE: usize = 64 * 1024;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AncestryAuthorization {
     pub subject_executable: PathBuf,
     pub owner_ancestor: ProcessAncestor,
-    pub scope: PathBuf,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct AncestryAuthorizationKey {
+    subject_executable: PathBuf,
+    owner_executable: PathBuf,
 }
 
 impl AncestryAuthorization {
@@ -28,7 +33,7 @@ impl AncestryAuthorization {
         owner_subject: &str,
         decision: &Decision,
     ) -> Option<Self> {
-        let Decision::Prompt { reason, scope, .. } = decision else {
+        let Decision::Prompt { reason, .. } = decision else {
             return None;
         };
         if !matches!(
@@ -44,8 +49,14 @@ impl AncestryAuthorization {
         Some(Self {
             subject_executable,
             owner_ancestor,
-            scope: scope.clone(),
         })
+    }
+
+    pub(crate) fn key(&self) -> AncestryAuthorizationKey {
+        AncestryAuthorizationKey {
+            subject_executable: self.subject_executable.clone(),
+            owner_executable: self.owner_ancestor.executable.clone(),
+        }
     }
 
     pub fn owner_is_current(&self) -> bool {
@@ -289,14 +300,19 @@ fn owner_chain_root<'a>(
     process: &'a ProcessIdentity,
     owner_subject: &str,
 ) -> Option<&'a ProcessAncestor> {
-    process
+    let owner_chain = process
         .ancestor_processes
         .iter()
         .skip_while(|ancestor| !ancestor_matches_owner(ancestor, owner_subject))
-        .take_while(|ancestor| {
-            ancestor_matches_owner(ancestor, owner_subject) && ancestor.start_time_ticks.is_some()
-        })
-        .last()
+        .take_while(|ancestor| ancestor_matches_owner(ancestor, owner_subject));
+    let mut root = None;
+
+    for ancestor in owner_chain {
+        ancestor.start_time_ticks?;
+        root = Some(ancestor);
+    }
+
+    root
 }
 
 fn ancestor_matches_owner(ancestor: &ProcessAncestor, owner_subject: &str) -> bool {
@@ -319,11 +335,12 @@ fn prompt_message(request: &PromptRequest<'_>) -> String {
     let Some(authorization) = request.authorization else {
         return format!("Allow {subject} to access this config file?");
     };
-    let owner = executable_name(&authorization.owner_ancestor.executable);
+    let owner_executable = &authorization.owner_ancestor.executable;
+    let owner = executable_name(owner_executable);
 
     format!(
-        "Allow {subject} launched by this {owner} process to access {} until Config Guard restarts?",
-        authorization.scope.display()
+        "Allow {subject} launched by {} to access all config owned by {owner} until Config Guard restarts?",
+        owner_executable.display()
     )
 }
 
@@ -332,10 +349,11 @@ fn prompt_detail(request: &PromptRequest<'_>) -> String {
     let Some(authorization) = request.authorization else {
         return detail;
     };
-    let owner = executable_name(&authorization.owner_ancestor.executable);
+    let owner_executable = &authorization.owner_ancestor.executable;
+    let owner = executable_name(owner_executable);
     detail.push_str(&format!(
-        "\n\nGrant: read and write within {}\nOwner process: {owner} (PID {})",
-        authorization.scope.display(),
+        "\n\nGrant: read and write across all config owned by {owner}\nOwner executable: {}\nCurrent owner process: PID {}",
+        owner_executable.display(),
         authorization.owner_ancestor.pid
     ));
 
@@ -431,12 +449,13 @@ mod tests {
             assert_eq!(
                 request.prompt_message.as_deref(),
                 Some(
-                    "Allow test-subject launched by this pi process to access /home/osso/.local/state/pi until Config Guard restarts?"
+                    "Allow test-subject launched by /home/osso/.local/share/pi/pi to access all config owned by pi until Config Guard restarts?"
                 )
             );
             let detail = request.prompt_detail.expect("prompt detail");
-            assert!(detail.contains("Grant: read and write within /home/osso/.local/state/pi"));
-            assert!(detail.contains("Owner process: pi (PID 7)"));
+            assert!(detail.contains("Grant: read and write across all config owned by pi"));
+            assert!(detail.contains("Owner executable: /home/osso/.local/share/pi/pi"));
+            assert!(detail.contains("Current owner process: PID 7"));
 
             let response =
                 rmp_serde::to_vec(&AuthResponse::Success { pid: 0 }).expect("encode response");
@@ -492,7 +511,6 @@ mod tests {
                 executable: PathBuf::from("/home/osso/.local/share/pi/pi"),
                 start_time_ticks: Some(50),
             },
-            scope: PathBuf::from("/home/osso/.local/state/pi"),
         }
     }
 

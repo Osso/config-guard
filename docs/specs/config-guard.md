@@ -39,10 +39,9 @@ Audit and guard runtime:
 - [x] In guard mode, block an open when the prompt explicitly denies it.
 - [x] Reuse one Allow or Deny prompt answer for the same verified process generation, access kind, and reason across policy scopes.
 - [x] Before presenting each queued guard prompt, revalidate the verified process generation; if the process exited or the PID was reused, discard the stale prompt and apply the configured default to its pending events.
-- [x] On an explicit Allow for a cross-owner helper under its owning process, create a runtime-only ancestry authorization keyed by the exact helper executable, the root generation of the nearest contiguous chain of matching owner executables, and owned scope; cover all access kinds in that scope until Config Guard restarts.
-- [x] Reuse runtime ancestry authorization for short-lived detached runners in the same contiguous owner chain; a different owner-session root requires a new prompt, and a matching owner executable separated by a non-owner process does not share authorization.
-- [x] Require a new prompt when no matching runtime ancestry authorization exists, and do not create ancestry authorization from an explicit Deny or a default decision.
-- [x] Do not cache prompt answers or create ancestry authorization when executable or process-generation identity is unavailable.
+- [x] On an explicit Allow for a cross-owner helper under its owning process, create a runtime-only ancestry authorization keyed by the exact verified helper executable path and exact verified owning ancestor executable path; apply it across all owned scopes and all later owner process generations and logical Pi sessions using that exact pair until Config Guard restarts.
+- [x] Require a new prompt when no matching runtime ancestry authorization exists; different helper paths, different owner paths even with the same basename, explicit Deny, default decisions, missing verified executable identity, and Config Guard restart must not reuse it.
+- [x] Do not cache ordinary prompt answers without verified process-generation identity or create ancestry authorization without both verified executable paths.
 - [x] Watch multiple roots from one process.
 - [x] Keep fanotify monitoring scope independent from policy ownership scope: broad monitored roots provide observation coverage but do not implicitly protect every descendant.
 - [x] Canonicalize configured roots and exclusions before monitoring so scope filtering is independent of the service working directory and `..` spelling.

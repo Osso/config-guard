@@ -1,6 +1,6 @@
 use crate::policy::{AccessKind, Decision, DecisionReason, ProcessSubject};
 use crate::process::{ProcessIdentity, is_process_generation_current};
-use crate::prompt::{AncestryAuthorization, Prompt, PromptRequest};
+use crate::prompt::{AncestryAuthorization, AncestryAuthorizationKey, Prompt, PromptRequest};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 #[derive(Default)]
 pub struct PromptDecisionCache {
     decisions: HashMap<PromptDecisionKey, Decision>,
-    ancestry_authorizations: HashSet<AncestryAuthorization>,
+    ancestry_authorizations: HashSet<AncestryAuthorizationKey>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -40,12 +40,13 @@ impl PromptDecisionCache {
     }
 
     fn allows_authorization(&self, authorization: Option<&AncestryAuthorization>) -> bool {
-        authorization
-            .is_some_and(|authorization| self.ancestry_authorizations.contains(authorization))
+        authorization.is_some_and(|authorization| {
+            self.ancestry_authorizations.contains(&authorization.key())
+        })
     }
 
     fn insert_authorization(&mut self, authorization: AncestryAuthorization) {
-        self.ancestry_authorizations.insert(authorization);
+        self.ancestry_authorizations.insert(authorization.key());
     }
 }
 

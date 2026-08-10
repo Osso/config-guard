@@ -89,6 +89,10 @@ impl CountingPrompt {
             calls: Cell::new(0),
         }
     }
+
+    fn set_decision(&mut self, decision: Decision) {
+        self.decision = decision;
+    }
 }
 
 impl Prompt for CountingPrompt {
@@ -417,7 +421,7 @@ fn resolve_reuses_explicit_allow_for_new_helper_under_same_pi_generation() {
 }
 
 #[test]
-fn resolve_does_not_share_allow_with_another_pi_generation() {
+fn resolve_reuses_allow_with_another_pi_generation() {
     let first_process = cat_process_with_pi_ancestor(42, 100, 7, 50);
     let next_process = cat_process_with_pi_ancestor(43, 200, 8, 60);
     let prompt = CountingPrompt::new(Decision::Allow);
@@ -440,11 +444,11 @@ fn resolve_does_not_share_allow_with_another_pi_generation() {
         "/home/osso/.local/state/pi",
     );
 
-    assert_eq!(prompt.calls.get(), 2);
+    assert_eq!(prompt.calls.get(), 1);
 }
 
 #[test]
-fn resolve_does_not_share_allow_across_owned_scopes() {
+fn resolve_reuses_allow_across_owned_scopes() {
     let first_process = cat_process_with_pi_ancestor(42, 100, 7, 50);
     let next_process = cat_process_with_pi_ancestor(43, 200, 7, 50);
     let prompt = CountingPrompt::new(Decision::Allow);
@@ -467,7 +471,7 @@ fn resolve_does_not_share_allow_across_owned_scopes() {
         "/home/osso/.config/pi",
     );
 
-    assert_eq!(prompt.calls.get(), 2);
+    assert_eq!(prompt.calls.get(), 1);
 }
 
 #[test]

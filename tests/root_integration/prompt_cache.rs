@@ -83,7 +83,7 @@ fn guard_prompts_again_for_a_new_process_generation() {
 
 #[test]
 #[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
-fn guard_reuses_allow_for_one_owner_generation_and_scope_until_restart() {
+fn guard_reuses_allow_across_owner_generations_and_scopes_until_restart() {
     require_root();
     let fixture =
         RootFixture::new("guard_reuses_allow_for_one_owner_generation_and_scope_until_restart");
@@ -125,8 +125,8 @@ fn guard_reuses_allow_for_one_owner_generation_and_scope_until_restart() {
         );
         assert_eq!(
             prompt_count(&fixture),
-            2,
-            "a distinct owned scope must require its own approval"
+            1,
+            "the same helper and owner executable path must reuse Allow across scopes"
         );
 
         assert!(
@@ -135,8 +135,8 @@ fn guard_reuses_allow_for_one_owner_generation_and_scope_until_restart() {
         );
         assert_eq!(
             prompt_count(&fixture),
-            3,
-            "another owner process generation must not inherit the approval"
+            1,
+            "another owner process generation with the same executable path must reuse Allow"
         );
     }
 
@@ -183,14 +183,24 @@ fn guard_does_not_reuse_deny_for_owner_ancestry() {
 
 #[test]
 #[ignore = "requires root/CAP_SYS_ADMIN: run target test binary through authsudo"]
-fn guard_reuses_allow_across_runners_within_one_pi_session() {
+fn guard_reuses_allow_across_pi_sessions_and_owned_scopes() {
     require_root();
-    let fixture = RootFixture::new("guard_reuses_allow_across_runners_within_one_pi_session");
+    let fixture = RootFixture::new("guard_reuses_allow_across_pi_sessions_and_owned_scopes");
     configure_pi_state(&fixture);
     let database = fixture.protected_dir().join("control.sqlite");
     let write_ahead_log = fixture.protected_dir().join("control.sqlite-wal");
     let shared_memory = fixture.protected_dir().join("control.sqlite-shm");
-    for path in [&database, &write_ahead_log, &shared_memory] {
+    let other_database = fixture.other_protected_dir().join("control.sqlite");
+    let other_write_ahead_log = fixture.other_protected_dir().join("control.sqlite-wal");
+    let other_shared_memory = fixture.other_protected_dir().join("control.sqlite-shm");
+    for path in [
+        &database,
+        &write_ahead_log,
+        &shared_memory,
+        &other_database,
+        &other_write_ahead_log,
+        &other_shared_memory,
+    ] {
         fs::write(path, "sqlite\n").expect("create sqlite fixture file");
     }
     let pi_binary = compile_pi_helper(&fixture);
@@ -200,6 +210,8 @@ fn guard_reuses_allow_across_runners_within_one_pi_session() {
         "guard",
         "--path",
         fixture.watch_root().to_str().unwrap(),
+        "--path",
+        fixture.second_watch_root().to_str().unwrap(),
         "--config",
         fixture.config_path().to_str().unwrap(),
         "--prompt-command",
@@ -235,7 +247,11 @@ fn guard_reuses_allow_across_runners_within_one_pi_session() {
         "A2 under the same logical Pi session must reuse A1's Allow"
     );
 
-    let runner_b1 = session_b.run_runner(&database, &write_ahead_log, &shared_memory);
+    let runner_b1 = session_b.run_runner(
+        &other_database,
+        &other_write_ahead_log,
+        &other_shared_memory,
+    );
     assert!(
         runner_b1.success,
         "session B runner B1 failed: {runner_b1:?}"
@@ -246,8 +262,8 @@ fn guard_reuses_allow_across_runners_within_one_pi_session() {
     );
     assert_eq!(
         prompt_count(&fixture),
-        2,
-        "B1 under another logical Pi session must receive a new prompt; session A PID={} session B PID={}; prompt log: {}",
+        1,
+        "B1 under another logical Pi session and owned scope must reuse A1's Allow; session A PID={} session B PID={}; prompt log: {}",
         session_a.pid(),
         session_b.pid(),
         fs::read_to_string(fixture.prompt_log_path()).expect("read prompt log")
@@ -258,8 +274,9 @@ fn configure_pi_state(fixture: &RootFixture) {
     fs::write(
         fixture.config_path(),
         format!(
-            "fail_open = false\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"config-guard-test-owner\"\nallowed_subjects = []\n",
-            fixture.protected_dir().display()
+            "fail_open = false\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"config-guard-test-owner\"\nallowed_subjects = []\n\n[[owned_paths]]\npath = \"{}\"\nowner = \"config-guard-test-owner\"\nallowed_subjects = []\n",
+            fixture.protected_dir().display(),
+            fixture.other_protected_dir().display()
         ),
     )
     .expect("write Pi-owned config");
