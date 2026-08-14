@@ -122,6 +122,16 @@ CLI and deployment:
 - [x] Support a configurable policy path through `--config`, falling back to the default user config path when present.
 - [x] Deploy the release binary, local policy config, and selected audit or guard systemd service through `deploy.sh`; stop the enforcing service before replacing its protected policy, restore service availability if privileged installation fails, then restart into the selected mode.
 
+## Verified deployment state
+
+`verified: 2026-08-14`
+
+- Deployed revision: `e4dea7e13455e95d4b585c51cd7b7b893066c462`.
+- `config-guard.service` is active and running in guard mode after one intentional restart; `MainPID=132425`, `NRestarts=0`, and `/run/config-guard/enforcing` is present.
+- Installed policy SHA-256 is `c300e711cc94ed8a9cab62af1fccbd643e85f6e241187f6a9da1cafcd4531196`, matching the source policy; the installed policy contains `/home/osso/.config/curseforge`.
+- Privileged root integration `guard_denies_strict_non_owner_without_prompt_fallback` passed `1/1`.
+- The full non-root runner passed; 18 privileged tests were ignored in that run.
+
 ## How it works
 
 - [System design](../wiki/systems/config-guard.md)

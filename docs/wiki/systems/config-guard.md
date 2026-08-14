@@ -26,7 +26,7 @@ An owned path may set `deny_non_owner = true`. Its configured owner and allowed 
 
 The deployed policy applies this strict rule to `/var/lib/secrets-broker`: owner `secrets-broker`, explicit additional subject `secrets-broker-admin`, and `deny_non_owner = true`. Other subjects cannot reach the credential store through prompt or fail-open handling; Unix ownership remains the primary boundary if Config Guard is stopped.
 
-The committed policy seed strictly owns `$HOME/.config/curseforge` for the `curseforge` executable with no additional allowed subjects and `deny_non_owner = true`. The live installed policy has not been refreshed with this commit, so the rule is not yet active on the host. When deployed, the credential directory should use Unix mode `0700` and its credential file mode `0600`; those Unix permissions are the primary at-rest boundary, not encryption, and Config Guard does not set or validate them. Config Guard adds executable-path enforcement. The service currently runs in guard mode with global `fail_open = true`; this rule will return `Deny` before prompt or fail-open handling for non-owner access, except for the global final-component `.gitignore` allow rule. Sibling paths such as `$HOME/.config/curseforge-helper` remain governed independently.
+The deployed policy strictly owns `$HOME/.config/curseforge` for the `curseforge` executable with no additional allowed subjects and `deny_non_owner = true`. The credential directory should use Unix mode `0700` and its credential file mode `0600`; those Unix permissions are the primary at-rest boundary, not encryption, and Config Guard does not set or validate them. Config Guard adds executable-path enforcement. The service runs in guard mode with global `fail_open = true`; this rule returns `Deny` before prompt or fail-open handling for non-owner access, except for the global final-component `.gitignore` allow rule. Sibling paths such as `$HOME/.config/curseforge-helper` remain governed independently.
 
 The deployed policy removed broad ownership entries for `/etc`, `/var`, `/var/log`, `$HOME/.local/share`, and `$HOME/.local/state`, and intentionally leaves `$HOME/.local/share/uv` unowned. Explicit sibling subtrees under `$HOME/.local/share` remain protected when listed in `owned_paths` or another applicable policy section. Add a specific entry when a new directory must receive ownership protection; adding a directory to a monitored root alone is not sufficient.
 
@@ -60,6 +60,16 @@ Run `./deploy.sh` from the repository root for audit mode, or `./deploy.sh --mod
 7. Waits six additional seconds, then verifies boot enablement, active state, `Type=notify`, the selected-mode `ExecStart`, a nonzero main PID, zero restarts, and marker presence in guard mode or absence in audit mode.
 
 Deployment fails if any bounded post-restart check fails. This proves initialized startup health and short-window stability, not long-term stability or policy completeness.
+
+### Verified deployment state
+
+`verified: 2026-08-14`
+
+- Deployed revision: `e4dea7e13455e95d4b585c51cd7b7b893066c462`.
+- `config-guard.service` is active and running in guard mode after one intentional restart; `MainPID=132425`, `NRestarts=0`, and `/run/config-guard/enforcing` is present.
+- Installed policy SHA-256 is `c300e711cc94ed8a9cab62af1fccbd643e85f6e241187f6a9da1cafcd4531196`, matching the source policy; the installed policy contains `/home/osso/.config/curseforge`.
+- Privileged root integration `guard_denies_strict_non_owner_without_prompt_fallback` passed `1/1`.
+- The full non-root runner passed; 18 privileged tests were ignored in that run.
 
 ## Service verification
 
