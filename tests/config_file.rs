@@ -1,3 +1,5 @@
+#[path = "config_file/curseforge.rs"]
+mod curseforge;
 #[path = "config_file/firefox.rs"]
 mod firefox;
 #[path = "config_file/noctalia.rs"]

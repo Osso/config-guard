@@ -652,6 +652,11 @@ allowed_subjects = ["*"]
 access = ["read"]
 
 [[owned_paths]]
+path = "/home/osso/.config/curseforge"
+owner = "curseforge"
+deny_non_owner = true
+
+[[owned_paths]]
 path = "/home/osso/.config/dconf"
 owner = "dconf"
 allowed_subjects = [
